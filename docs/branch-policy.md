@@ -67,19 +67,21 @@ AdaptiveBatch      bool          // false = 원본 동작 (기본값)
 ## 3. feat/ 브랜치 목록과 순서
 
 의존 관계 순입니다. 앞 브랜치가 main에 들어간 뒤 다음을 main에서 땁니다 (**스택 금지** — 한 번에 하나씩).
+2026-11-02 원본 소스 확인(`docs/notes/00-summary.md` 3절) 결과로 확정한 순서입니다.
 
-| 순서 | 브랜치 | 범위 | 플래그 |
-|---|---|---|---|
-| 1 | `feat/metrics-round-latency` | pre-prepare→commit 지연, 풀 길이, 배치 크기 메트릭 | 없음 (계측만, main 직접 커밋도 가능) |
-| 2 | `feat/adaptive-batch` | `batcher.go` 파라미터 동적화 + 제어기 | `AdaptiveBatch` |
-| 3 | `feat/leader-token-window` | `controller.go` leaderToken → 깊이 W 세마포어 | `PipelineDepthMax` |
-| 4 | `feat/view-seq-window` | `view.go` current/next 2슬롯 → `map[seq]` 윈도우 | `PipelineDepthMax` |
-| 5 | `feat/prev-commit-dependency` | `prev_commit_signatures` 의존성 해소 (설계 결정 후) | `PipelineDepthMax` |
-| 6 | `feat/viewchange-multi-inflight` | `ViewData.in_flight_proposal` → repeated, 복구 규칙 | `PipelineDepthMax` |
-| 7 | `feat/config-barrier` | 설정 트랜잭션 시 파이프라인 flush | `PipelineDepthMax` |
-| 8 | (fabric) `feat/smartbft-pipeline-verifier` | PreviousHash·VerificationSequence 검증 완화 | Fabric 채널 설정 |
+| 순서 | 브랜치 | 범위 | 플래그 | 선행 |
+|---|---|---|---|---|
+| 1 | `feat/metrics-round-latency` | seq 별 `beginPrePrepare`, WAL append 지연, in-flight 수, 풀 바이트, 배치 충만 사유 메트릭 | 없음 (계측만, main 직접 커밋도 가능) | — |
+| 2 | `feat/pipeline-config` | `PipelineDepthMax`(기본 1)·`AdaptiveBatch`(기본 false) 필드, `Validate()` 에 `PipelineDepthMax>1 ⇒ !LeaderRotation` 및 `W×MaxCount ≤ PoolSize`, 테스트 하네스 `Restart()`·reconfig 변환기 반영 | 둘 다 (기본값 원본) | 1 |
+| 3 | `feat/adaptive-batch` | `SetBatchParams` + 제어기 (배치 크기·타임아웃) | `AdaptiveBatch` | 2 |
+| 4 | `feat/pipeline-window` | 컨트롤러 토큰 세마포어·proposer 고루틴·in-order Decide 게이트, 뷰 `slots map[seq]`·라우팅·low watermark, 요청 풀 예약 상태, `InFlightData` 다중화 | `PipelineDepthMax` | 2 |
+| 5 | `feat/state-wal-window` | `WindowMark` 레코드, 절단 규칙, `Restore` 다중 in-flight 복원 | `PipelineDepthMax` | 4 |
+| 6 | `feat/viewchange-multi-inflight` | `repeated in_flight`, 연속 prepared 접두사 복구 규칙, `commitInFlightProposal` 반복 | `PipelineDepthMax` | 5 |
+| 7 | `feat/config-barrier` | 설정 트랜잭션 전후 파이프라인 flush, 팔로워 측 거부 규칙 | `PipelineDepthMax` | 4 |
+| 8 | `feat/api-prev-proposal` | `pkg/api` 에 직전 제안 헤더를 받는 `*After` 메서드 추가 (Fabric 파급) | `PipelineDepthMax` | 4 |
+| 9 | (fabric) `feat/smartbft-pipeline-verifier` | `verifier.go`/`assembler.go` 의 `*After` 구현, 배리어 신호, `Options` proto 필드, `go.mod` replace → 포크 | Fabric 채널 설정 | 8 |
 
-3~4는 합쳐서 하나로 가도 됩니다. 5·6은 분리 유지 (각각 안전성 논증이 필요하므로 diff를 독립적으로 보여줘야 함).
+원안과의 차이: 설정·하네스 배관을 2 로 분리, 구 `leader-token-window`+`view-seq-window` 는 플래그 ON 테스트가 서로를 필요로 하므로 4 로 통합, WAL 복원(5)을 신규 추가, 구 `prev-commit-dependency` 는 2 의 `Validate()` 규칙으로 축소 (근거: `docs/notes/prev-commit-dependency.md`, 선택지 c). 5·6 은 분리 유지 (각각 안전성 논증이 필요하므로 diff 를 독립적으로 보여줘야 함).
 
 ## 4. PR 병합 규칙
 
