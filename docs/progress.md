@@ -11,6 +11,8 @@ SmartBFT 포크 main 에 들어간 변경과 그 근거 PR. 논문 구현 장에
 
 PR 본문 사본: `docs/pr/`. 게이트 결과는 각 PR 본문과 코멘트에 기록.
 
+병합 후 main d9d36397 전체 게이트 (2026-11-02): `go test ./test -count=1` → `ok 145.490s`.
+
 ## fabric 포크
 
 | 날짜 | 내용 |
