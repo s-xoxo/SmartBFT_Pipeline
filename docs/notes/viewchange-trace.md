@@ -328,6 +328,26 @@ ViewChanged(currView, mySequence+1)                    // 1228 그대로
 5. **라이브니스 측 비용**: 접두사 커밋은 `commitInFlightProposal` 을 m 번 순차 실행 → 각각 Commit 재방송·quorum 대기. 타임아웃(`checkIfTimeout`)은 뷰 체인지 시작 시각 기준이라 m 이 커지면 실패 확률이 커진다 (열린 문제 3).
 6. **W=1 회귀**: 위 규칙은 W=1 에서 `len(prefix) ≤ 1` 이 되어 기존 A/B 와 정확히 같은 결과를 내고, ViewData 바이트도 동일하다.
 
+### 안전성 보강 (리뷰 반영, 2026-11-02)
+
+위 초안이 빠뜨린 경우: **"s 는 B(중단)인데 s+1 은 어떤 정직 노드가 이미 commit 정족수를 모아 둔 상황".** prepare 투표가 slot 별로 독립이면, s 의 prepare 만 유실된 노드들이 "in-flight 없음" 을 보고해 s 에서 B 가 성립하는 동시에, 다른 정직 노드는 s+1 의 Commit 2f+1 개(commit 인증서)를 들고 있을 수 있다. 접두사 규칙은 s 에서 멈추고 s+1 을 폐기하므로, 그 노드 안에서 **옛 s+1 인증서와 새 뷰의 s+1 제안이 충돌**할 수 있다. 전달(Deliver)은 seq 순서로만 일어나므로 원장 안전성은 깨지지 않지만, 아래 두 규칙을 설계에 명시한다.
+
+**정의 (안전성 기준).** 안전성은 "커밋" 이 아니라 **"전달(Deliver)"** 기준으로 정의한다: 두 정직 노드가 같은 seq 에 서로 다른 제안을 전달하지 않는다. 블록체인에서는 s 없이 s+1 을 전달할 수 없으므로(`controller.go:989-1000 MutuallyExclusiveDeliver`, in-order 게이트), s+1 의 commit 인증서만으로는 전달이 일어나지 않는다.
+
+**규칙 D1 (폐기 접미사의 인증서 파기).** 뷰 체인지가 접두사 `base+1..base+m` 을 보존하고 그 이후를 폐기하면, 모든 노드는 **`seq > base+m` 에 대해 보유한 모든 상태를 버린다**: slot 의 prepare/commit 투표, 완성된 commit 인증서, in-order 게이트에 보관 중인 서명, `InFlightData` 항목, WAL 상의 해당 레코드는 다음 절단 시 무효로 표시. 이 규칙이 없으면 새 뷰의 s+1 과 옛 s+1 이 같은 노드 안에서 충돌한다. 구현 위치: `processNewViewMsg` 에서 접두사 커밋 완료 직후, 새 View 를 시작하기 전 (`controller.go abortView` 경로의 `InFlightData.clear` 를 `clearAbove(base+m)` 로 일반화).
+
+**규칙 D2 (prepare 선행 조건, 보조).** 팔로워는 slot k 에 Prepare 를 보내기 전에 **`low..k-1` 의 pre-prepare 를 모두 수신하고 해시 검증했음**을 요구한다. `prepared(k-1)` 까지 요구하면 파이프라인이 반쯤 직렬화되므로 그것은 요구하지 않는다. 이 조건이 있으면 "s 의 prepare 는 유실, s+1 의 commit 은 완성" 인 상황은 s 의 pre-prepare 자체가 유실된 경우로 좁혀지고, 그 경우는 리더의 pre-prepare 재브로드캐스트(아래)가 메운다. 논증도 "접두사의 pre-prepare 는 모든 prepare 참여 노드가 갖고 있다" 로 단순해진다.
+
+**보조 규칙 (pre-prepare 재브로드캐스트, feat 4 범위).** 리더는 pre-prepare 를 1회만 보내고(`view.go:426`) `doPhase` 재전송과 `handlePrevSeqMessage` 는 prepare/commit 만 다루므로, 윈도우에서는 slot k 의 pre-prepare 를 놓친 팔로워가 k+1 의 prepare 를 받아도 k 를 영영 채우지 못한다. 리더는 **미커밋 slot 전체의 pre-prepare 를 `doPhase` 주기로 재브로드캐스트**한다 (팔로워가 빈 slot 을 발견해 요청하는 방식보다 코드가 적고 기존 재전송 패턴과 같다). 팔로워 측 중복 pre-prepare 는 지금처럼 폐기(I1).
+
+**Lemma 형태 정리 (논문 4장 뼈대).**
+- *Lemma 1 (seq 별 배타성).* 임의의 뷰 v, seq s 에 대해 정족수 ViewData 집합에서 A(s) 와 B(s) 는 동시에 성립하지 않는다. (초안 1·2, 기존 `CheckInFlight` 의 근거를 seq 별로 적용)
+- *Lemma 2 (전달 가능성의 접두사성).* 정직 노드가 seq s 를 전달했다면 모든 s' < s 도 전달했다. (in-order 게이트, `MutuallyExclusiveDeliver`)
+- *Lemma 3 (보존 충분성).* 어떤 정직 노드가 s 를 전달했을 가능성이 있으면 A(s) 가 성립하고, 접두사 규칙은 s 를 같은 값으로 보존한다. (Lemma 1 + 초안 1)
+- *Lemma 4 (폐기 안전성).* B 가 처음 성립하는 s 이후의 seq 는 어떤 정직 노드도 전달하지 않았다(Lemma 2). 규칙 D1 로 그 이후의 인증서를 모두 파기하면, 새 뷰에서 같은 seq 에 다른 제안이 전달되어도 두 정직 노드가 다른 값을 전달하는 일은 없다.
+- *Lemma 5 (W=1 환원).* W=1 에서 접두사 길이는 ≤ 1, D1 은 기존 `InFlightData.clear` 와 동일, D2 는 공허하게 참, ViewData 바이트 동일.
+- *정리.* Lemma 2–4 로부터 전달 기준 안전성이 성립한다. 라이브니스는 별도(열린 문제 1·3).
+
 ## 열린 문제
 
 1. **[?] `checkLastDecision` 616 (`> mySequence+1` 거절) 과 `validateNewViewMsg` 1051 (`> mySequence+1` 즉시 sync)** — 윈도우에서는 정직 노드 간 체크포인트 차이가 최대 W 이므로, 뒤처진 새 리더는 앞선 정직 노드의 ViewData 를 모두 거절해 quorum 을 못 채운다. ViewData 가 last_decision 하나만 싣는 구조라 중간 decision 을 받아 검증·전달하는 `650-673` 경로를 W 로 확장할 수 없다. 1차안: 리더가 `> my+1` 메시지를 보류 집계해 **f+1 명이 ≥ my+2 를 주장하면** `Synchronizer.Sync()` 후 체크포인트를 다시 읽어 보류 메시지를 재검증. 대안: ViewData 에 `repeated Proposal recent_decisions` 를 추가(크기 비용, 서명 검증 비용 W 배). 주석 `587-589` 의 "sender might be malicious 라 sync 안 함" 원칙과 충돌하므로 결정 필요. 코드만으로는 어느 쪽이 맞는지 판단 불가.
@@ -335,4 +355,5 @@ ViewChanged(currView, mySequence+1)                    // 1228 그대로
 3. **[?] 타임아웃 예산** — `commitInFlightProposal` 은 매 호출마다 `<-v.Ticker` 2회(1353-1354)를 소비하고 `checkIfTimeout(now)` (1382) 는 `startViewChangeTime` 기준. 접두사 m 개면 최소 2m 틱 + m 회 quorum 대기. `ViewChangeTimeout` 을 W 에 비례해 늘릴지, 접두사 하나 커밋마다 타이머를 재시작할지 결정 필요 (후자는 바이잔틴 리더가 가짜 접두사로 시간을 끄는 공격면을 넓힘).
 4. **[?] WAL 복구 (`state.go:132-138`, `recoverPrepared` 185-199)** — 마지막 레코드 1~2개만 보고 `InFlightData` 를 재구성. W≥2 에서는 마지막 pre-prepare 외의 in-flight 가 복구되지 않아 재시작 노드의 ViewData 에서 빠진다(안전성은 유지 — 그 노드가 "prepared 안 함" 으로 보일 뿐 — 하지만 조건 A 를 채우는 정직 노드 수가 줄어 라이브니스 저하). WAL 섹션과 조정 필요.
 5. **[?] `committedDuringViewChange` (125, 681, 525-530)** — 단일 `ViewMetadata`. 체크포인트 기준 필터로 흡수하면 제거 가능해 보이나, `TestCommitWhileHavingInFlight` (2334) 가 이 분기를 직접 검증하므로 제거 시 테스트 의미를 다시 정의해야 함.
+7. **[테스트 항목, feat 6]** 뒤처진 새 리더의 1차안(sync 후 뷰 체인지 재시작)은 PBFT 의 표준 처리라 충분하지만, `ViewChangeTimeout` 과 sync 시간이 겹치면 연쇄 뷰 체인지가 날 수 있다. feat 6 테스트에 `ViewChangeTimeout` 을 수 초로 줄인 상태에서 이 경로가 발동하는지 로그로 확인하고 연쇄 뷰 체인지가 없음을 단언하는 케이스(`TestLaggingLeaderSyncsThenViewChanges`)를 넣는다.
 6. **[?] `StorePrepares` 가 commit 기록 시점에 호출됨 (`state.go:45-47`)** — 즉 "prepared" 플래그는 노드가 **Commit 을 WAL 에 쓴 시점**에 세워진다. 파이프라인 View 가 seq 별 Commit 을 어떤 순서로 WAL 에 쓰는지에 따라 `InFlightData` 슬롯 갱신 순서가 달라지므로, 키를 `(view, seq)` 로 두는 것이 안전하다 — View 섹션 담당자와 확인 필요.

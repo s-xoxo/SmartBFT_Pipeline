@@ -72,11 +72,11 @@ AdaptiveBatch      bool          // false = 원본 동작 (기본값)
 | 순서 | 브랜치 | 범위 | 플래그 | 선행 |
 |---|---|---|---|---|
 | 1 | `feat/metrics-round-latency` | seq 별 `beginPrePrepare`, WAL append 지연, in-flight 수, 풀 바이트, 배치 충만 사유 메트릭 | 없음 (계측만, main 직접 커밋도 가능) | — |
-| 2 | `feat/pipeline-config` | `PipelineDepthMax`(기본 1)·`AdaptiveBatch`(기본 false) 필드, `Validate()` 에 `PipelineDepthMax>1 ⇒ !LeaderRotation` 및 `W×MaxCount ≤ PoolSize`, 테스트 하네스 `Restart()`·reconfig 변환기 반영 | 둘 다 (기본값 원본) | 1 |
+| 2 | `feat/pipeline-config` | `PipelineDepthMax`(기본 1)·`AdaptiveBatch`(기본 false) 필드, `Validate()` 에 `PipelineDepthMax>1 ⇒ !LeaderRotation` 및 `W×MaxCount ≤ PoolSize`, 테스트 하네스 `Restart()`·reconfig 변환기 반영, 하트비트·뷰체인지 타임아웃 주입 생성자 | 둘 다 (기본값 원본) | 1 |
 | 3 | `feat/adaptive-batch` | `SetBatchParams` + 제어기 (배치 크기·타임아웃) | `AdaptiveBatch` | 2 |
-| 4 | `feat/pipeline-window` | 컨트롤러 토큰 세마포어·proposer 고루틴·in-order Decide 게이트, 뷰 `slots map[seq]`·라우팅·low watermark, 요청 풀 예약 상태, `InFlightData` 다중화 | `PipelineDepthMax` | 2 |
+| 4 | `feat/pipeline-window` | 컨트롤러 토큰 세마포어·proposer 고루틴·in-order Decide 게이트, 뷰 `slots map[seq]`·라우팅·low watermark, 요청 풀 예약 상태, `InFlightData` 다중화, 리더의 미커밋 slot pre-prepare 재브로드캐스트, 팔로워 prepare 선행 조건, `decide:567` 중복 발급 수정 | `PipelineDepthMax` | 2 |
 | 5 | `feat/state-wal-window` | `WindowMark` 레코드, 절단 규칙, `Restore` 다중 in-flight 복원 | `PipelineDepthMax` | 4 |
-| 6 | `feat/viewchange-multi-inflight` | `repeated in_flight`, 연속 prepared 접두사 복구 규칙, `commitInFlightProposal` 반복 | `PipelineDepthMax` | 5 |
+| 6 | `feat/viewchange-multi-inflight` | `repeated in_flight`, 연속 prepared 접두사 복구 규칙, 폐기 접미사 인증서 파기(D1), `commitInFlightProposal` 반복, 뒤처진 리더 sync→재시작 경로 테스트 | `PipelineDepthMax` | 5 |
 | 7 | `feat/config-barrier` | 설정 트랜잭션 전후 파이프라인 flush, 팔로워 측 거부 규칙 | `PipelineDepthMax` | 4 |
 | 8 | `feat/api-prev-proposal` | `pkg/api` 에 직전 제안 헤더를 받는 `*After` 메서드 추가 (Fabric 파급) | `PipelineDepthMax` | 4 |
 | 9 | (fabric) `feat/smartbft-pipeline-verifier` | `verifier.go`/`assembler.go` 의 `*After` 구현, 배리어 신호, `Options` proto 필드, `go.mod` replace → 포크 | Fabric 채널 설정 | 8 |

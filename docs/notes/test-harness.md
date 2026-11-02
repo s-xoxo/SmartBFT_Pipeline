@@ -167,7 +167,7 @@
 
 1. **하네스는 그대로 재사용한다.** 노드 생성(`newNode`), 파티션(`Disconnect`), 선택 드롭(`LoseMessages`), 변조(`MutateSend`), 재시작(`Restart`), 타이머 가속(`accelerateTime`) 이 다 있고 upstream 통합 테스트 50개가 그 위에 있다. 부족한 것은 (a) 링크 지연, (b) exported 설정 가능 생성자, (c) 부하 생성·측정 — 전부 벤치(`bench/lib/`) 쪽에서 추가한다.
 2. **하네스 쪽 선행 수정 (플래그 무관, `test:` 커밋 1개)**: `test_app.go` `Setup` 의 carry-over 에 `PipelineDepthMax`/`AdaptiveBatch` 추가; `test/reconfig.go` `Configuration` + 두 변환 함수에 같은 필드 추가. 이게 없으면 재시작/리컨피그 테스트에서 플래그가 조용히 꺼진다.
-3. **벤치는 `bench/lib/` 에 별도 Go 모듈**로, 포크의 `test` 패키지를 import 하고 `replace` 로 baseline worktree 와 main 을 번갈아 가리킨다 (위 스케치). 1차 지표: TPS, e2e p50/p95/p99, pre-prepare→commit p50/p95(MutateSend 기반), 최대 동시 in-flight. 네트워크 지연은 `delayComm` 래퍼로 0/10/50/100ms.
+3. **벤치는 `bench/lib/` 에 별도 Go 모듈**로, `replace` 로 baseline worktree 와 main 을 번갈아 가리킨다. 리뷰 반영(2026-11-02): **`test/` 하네스를 import 하지 않고 `api.Comm` 을 직접 구현해 링크별 지연 큐를 둔다** — `MutateSend` 블로킹 방식은 송신 고루틴을 막지만, 지연 큐는 막지 않고 RTT 를 모사하므로 Fabric+netem 전에 W·RTT 스윕이 가능하다. `test/` 하네스는 기능·순서 검증용 플래그 ON 테스트에만 쓴다. 비교군도 `LeaderRotation=false`. 1차 지표: TPS, e2e p50/p95/p99, pre-prepare→commit p50/p95(MutateSend 기반), 최대 동시 in-flight. 네트워크 지연은 `delayComm` 래퍼로 0/10/50/100ms.
 4. **플래그 ON 테스트 추가 계획** (PR 당 최소 1개, branch-policy 3절 순서):
 
 | PR | 테스트 이름 | 시나리오 | 어서션 | 클론 원본 |

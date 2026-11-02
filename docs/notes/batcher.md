@@ -139,7 +139,7 @@ func (b *BatchBuilder) BatchParams() BatchParams
 ## 열린 문제
 1. **in-flight 요청 중복 반환**: `NextRequests()` 가 항상 `fifo.Front()` 부터 읽으므로 (`requestpool.go:308`) W>1 에서는 "제안됐지만 미결정" 요청을 건너뛸 메커니즘(풀의 예약 플래그 vs 배처의 커서 vs 별도 in-flight 집합) 을 정해야 한다. 뷰 체인지/abort 시 예약 해제 경로도 필요.
 2. **run 루프 블로킹**: `NextBatch()` 가 컨트롤러 run goroutine 을 점유한다 (`controller.go:496`). W 개를 연속 제안하려면 제안 goroutine 분리 또는 non-blocking `TryNextBatch()` 가 필요하고, 그러면 `Close()` 로 깨우는 현재 abort 프로토콜을 재검토해야 한다.
-3. **타임아웃 의미론 불일치**: 주석(첫 요청 도착 기준) vs 코드(호출 시점 기준). 적응형 배처가 "첫 요청 도착 기준" 으로 바꿀지, 원본 동작을 그대로 둘지 결정 필요 — `PipelineDepthMax=1, AdaptiveBatch=false` 에서는 원본 유지가 조건.
+3. **타임아웃 의미론 불일치**: 주석(첫 요청 도착 기준) vs 코드(호출 시점 기준). 적응형 배처가 "첫 요청 도착 기준" 으로 바꿀지, 원본 동작을 그대로 둘지 결정 필요 — `PipelineDepthMax=1, AdaptiveBatch=false` 에서는 원본 유지가 조건. 리뷰 반영: proposer 고루틴을 분리하면 타임아웃은 "토큰을 받은 시점부터 T" 가 되므로 적응형 제어의 T 의미는 **"제안 가능해진 뒤 최대 대기"** 로 정리된다. `config.go:24-27` 주석과 코드의 불일치는 upstream 이슈 후보로 기록.
 4. **`ChangeOptions` 의 stopped 제약**: 요청 타임아웃을 제어기가 런타임에 조정하려면 `requestpool.go:149` 조건을 완화해야 하는데, 이미 무장된 타이머와의 상호작용(RestartTimers 가 모두 ForwardTimeout 으로 재시작) 을 검토하지 않았다. 1차 범위에서는 타임아웃을 고정하고 W/배치만 조정하는 쪽이 안전.
 5. **`Size()` 의 배타 락**: 제어기 샘플링 주기와 경합 비용을 측정하지 않았다 ([?]).
 6. 히스토그램 메트릭 이름 오류 (`view_latency_batch_save` = Deliver 시간, `view_size_batch` = 누적 Counter) 는 원본 그대로 두고 새 메트릭을 추가하는 것으로 한다 (논문 비교 시 혼동 방지를 위해 노트에 기록).
