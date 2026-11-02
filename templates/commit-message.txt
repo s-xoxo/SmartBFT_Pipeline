@@ -1,0 +1,7 @@
+<area>: <한 줄 요약>
+
+<왜 바꿨는지, 어떤 동작이 달라지는지>
+Flag: PipelineDepthMax (default 1 = unchanged)
+Refs: docs/notes/<topic>.md
+
+# area: view | controller | viewchanger | batcher | proto | api | metrics | docs | test | bench
