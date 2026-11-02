@@ -37,3 +37,10 @@
 | G | [state-wal.md](state-wal.md) | Restore 1~2 레코드 가정, PP truncate 위험, `WindowMark` 포맷 초안 |
 | H | [test-harness.md](test-harness.md) | 하네스 훅 목록, `Restart()` 플래그 초기화 함정, 플래그 ON 테스트 12개 계획, 실행 시간 |
 | I | [fabric-verifier.md](fabric-verifier.md) | `LastCommittedBlockHash` 비교, `*After` 메서드 제안, 배리어 이유 4개, 플래그 배관 경로 |
+
+## 설계 문서 (구현 전 확정용, 2026-11-02)
+
+| 브랜치 | 문서 | 상태 |
+|---|---|---|
+| 3 `feat/adaptive-batch` | [design-adaptive-batch.md](design-adaptive-batch.md) | 리뷰 대기 (열린 질문 10개) |
+| 4 `feat/pipeline-window` | [design-pipeline-window.md](design-pipeline-window.md) | 리뷰 대기 (열린 질문 12개) |
