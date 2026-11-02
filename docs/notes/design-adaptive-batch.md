@@ -656,3 +656,14 @@ a~c 는 각각 독립적으로 전체 테스트가 통과해야 하며, d 전까
 | `fabric/orderer/consensus/smartbft/verifier.go` | 98-121, 263-329 | `VerifyProposal`, `verifyBlockDataAndMetadata` (개수 검사 없음) |
 | `fabric/orderer/consensus/smartbft/util.go` | 450-458 | `createSmartBftConfig` (455-456 BatchSize → 라이브러리 설정) |
 | `fabric/orderer/common/msgprocessor/sizefilter.go` | 39 | `AbsoluteMaxBytes` 는 envelope 단위 필터 |
+
+## 11. 리뷰 결정 반영 (2026-11-02)
+
+결정 전문은 [decisions-2026-11-02.md](decisions-2026-11-02.md). 이 문서에 미치는 변경:
+
+- **§5 지연 가드 기준선 수정 (필수)**: `L_ref` 를 "전 구간 최소" 에서 **최근 `RefWindow`(기본 100) 결정의 슬라이딩 윈도우 최소** 로 바꾼다. 근거: RTT 가 영구 증가(netem 50→100 ms)하면 전 구간 최소 기준의 가드가 계속 발동해 C 가 천장에 갇히고, 30 결정 천장 기억이 풀려도 재발동한다. 구현: 고정 크기 링 버퍼 + 단조 큐(O(1) amortised) 또는 단순 O(RefWindow) 스캔(RefWindow=100 이면 무시 가능). `RefWindow` 는 `TunerConfig` 필드. 윈도우가 차기 전(결정 < RefWindow)에는 가드를 발동하지 않는다(warm-up 과 일치). 대안으로 EWMA 쪽으로 감쇠하는 최소(`L_ref ← L_ref + β(L_fast − L_ref)`, β≪α)도 가능하나 파라미터가 하나 더 늘어 비권고.
+- **§5 γ 는 실험 변수** (기본 2.0). LAN 에서는 배치 크기가 라운드 지연에 거의 비례해 가드가 정상 배치 성장을 혼잡으로 오인할 수 있다. 설계 의도("지연 제약 내 TPS 최대화")와 일치하지만, LAN 결과가 baseline 보다 TPS 가 낮으면 이 가드 때문이다. `batcher_count_of_guard_trips{reason}` 를 결과 그래프에 함께 표시해 설명한다.
+- **§2 팔로워 측 상한 없음 → 논문 필수 기재**: 팔로워(`view.go verifyProposal`)도 하네스도 Fabric `verifier.go` 도 배치의 요청 개수를 상한과 비교하지 않는다. 즉 비잔틴 리더는 baseline 에서도 임의 크기 배치를 보낼 수 있으므로 **적응형 배치 제어는 공격 표면을 추가하지 않는다**. 평가 설계: "상한 초과 감지 → 뷰 체인지" 류 실험은 배치 크기가 아니라 **파이프라인 깊이(수용 구간 밖 seq 폐기, design-pipeline-window §3)** 에만 적용한다.
+- **§10 ③**: `C_init = ⌈C_cap/4⌉` 채택. 램프 1.25^6 ≈ 3.8배, k=3 이면 약 18 결정에 C_cap 도달 → **벤치 warm-up 최소 30 결정**.
+- **§10 ④**: 튠 파라미터는 `TunerConfig` 에만 두되 **벤치·하네스에서 주입 가능**해야 한다(k, γ, 배율, RefWindow 스윕). 구현: `Consensus` 에 `BatchTunerConfig *TunerConfig`(nil = 기본값) 필드 또는 `SetTunerConfig` — `types.Configuration` 비노출과 양립.
+- §10 ⑩ 및 나머지: 권고대로.

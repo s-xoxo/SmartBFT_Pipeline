@@ -749,3 +749,14 @@ test-harness 노트의 15개(이 체크아웃 위치): `"%d collected %d prepare
 10. **팔로워 수용 구간 W+1 칸** (§3.3) — `[low, low+W]` 수용/`[low, low+W)` 처리 분리가 맞는지 확인. 대안 `[low, low+W)` 만 수용은 W=1 에서 baseline 의 `next` 슬롯을 없애 즉시 회귀한다. (권고: W+1.)
 11. **`view_in_flight_proposals` 의 의미** — PR #2 의 정의(pre-prepare 수신~전달)는 팔로워에서도 W 까지 오른다. 리더 전용 "제안~전달" 게이지를 따로 둘지. (권고: 그대로; 벤치는 로그 차이로 계산.)
 12. **간극 지속 시 추가 sync 트리거** — W>1 에서 pre-prepare 간극이 재브로드캐스트로도 메워지지 않으면(리더 교체 직전 등) 기존 하트비트 behind 카운터에만 의존. (권고: 추가 없음; 뷰 체인지가 해결.)
+
+## 14. 리뷰 결정 반영 (2026-11-02)
+
+결정 전문은 [decisions-2026-11-02.md](decisions-2026-11-02.md). 이 문서에 미치는 변경:
+
+- **§5 재브로드캐스트**: W>1 전용 확정. **1차 복구 경로는 W>1 에서도 sync 이고, 재전송은 지연 단축용 보조다.** 따라서 §10 안전성 논증과 §9 불변식은 재전송에 의존하지 않는다. 틱은 하트비트 주기(`LeaderHeartbeatTimeout/LeaderHeartbeatCount`), 새 설정 필드 없음. 한계: 6 s 복구 지연이 손실 실험 p99 에 드러남 → 후속 브랜치 후보 gap-triggered 1회 재전송(노드·슬롯당 1회 상한).
+- **§2 W=1 편차 3개**: 승인. 조건으로 **§11 테스트 계획에 추가**: `TestMessageHistogramMatchesBaseline` — 하네스 `MutateSend` 훅으로 메시지 종류별(pre-prepare/prepare/commit/heartbeat/view-change) 송신 수를 세어 golden 파일(`baseline` 태그에서 1회 생성, 저장소에 커밋)과 비교. 대상 `TestBasic`(결정적, 정확 일치)과 `TestNodeInFlightThenViewChange`(타이밍 의존 heartbeat 는 범위 비교, 그 외는 정확 일치). W=1 main 에서 통과해야 "W=1 은 원본과 메시지 수준에서 동일" 문장의 근거가 된다.
+- **§6.x Lemma 추가 (DecisionsInView)**: *Lemma (예측식 = 검사식).* 리더의 `expectedDecisions(head) = DecisionsInView + (head − low)` 와 팔로워의 `expectedDecisions(k)` 는 같은 식이며, 뷰 시작 쌍 `(ProposalSequence, DecisionsInView)` 가 노드 간 일치하면 뷰 내 모든 k 에서 일치한다. 뷰 시작 쌍은 `changeView(view, seq, dec)` (controller.go:386-414) 가 세 값을 함께 받아 `startView` (:363-384) → `NewProposer(..., proposalSequence, viewNumber, decisionsInView, ...)` 로 넘기며, 호출 4곳(:491 새 뷰 `dec=0`, :503 sync 후 상태의 dec, :510 뷰 재시작 시 현재 dec, :561 로테이션 시 현재 dec)이 모두 노드 간 동일한 프로토콜 입력에서 쌍을 유도한다. 뷰 시작 쌍의 일치는 baseline 의 `verifyProposal` 등식 검사가 이미 요구하는 조건이므로 새 가정이 아니다.
+- **§6.5 `Controller.Decide` 블로킹 유지**: 한계 기록 — Deliver 완료까지 뷰 고루틴이 블록되어 다른 슬롯의 prepare/commit 이 `incMsgs` 에 적체된다. W 를 키워도 TPS 가 오르지 않으면 첫 용의자. 판별: `view_latency_batch_save`(= Deliver 소요, PR #2 주석) 를 라운드 지연과 함께 그래프에.
+- **§1 한계 (d)**: 승인. 추가 요구 — **W>1 이고 WAL 에 in-flight 레코드가 있는 상태의 재시작을 `Restore`(또는 `Consensus.Start`)에서 명시적으로 거부(error 반환, panic 아님)**. 실험 중 실수로 밟았을 때 원인이 즉시 드러나게 한다. 브랜치 5 가 이 거부를 제거한다.
+- §13 ①②③⑩ 및 나머지: 권고대로.

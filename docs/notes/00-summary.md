@@ -60,11 +60,12 @@
 | 4 | `feat/pipeline-window` (구 3+4 통합) | 컨트롤러: 토큰 세마포어·`proposerLoop`·회수 규칙 R1~R7·in-order Decide 게이트. 뷰: `slots map[seq]`·라우팅·low watermark·prev 재전송 링. 풀: 예약 상태. `InFlightData` 다중화. **리더의 미커밋 slot pre-prepare 재브로드캐스트, 팔로워 prepare 선행 조건(D2), `decide:567` 중복 발급 수정** | `PipelineDepthMax` | 2 | `TestMultiInFlightBasic` (W=4, 손실 0 확인), `TestPipelineDecideInOrder` |
 | 5 | `feat/state-wal-window` (신규, 구 G) | `WindowMark` 레코드, 절단 규칙, `Restore` map 접기 | `PipelineDepthMax` | 4 | `TestRestartKeepsMultipleInFlightProposals` ← `TestRestartKeepsViewAndInFlightProposal` |
 | 6 | `feat/viewchange-multi-inflight` | `repeated in_flight`, 접두사 복구 규칙, `commitInFlightProposal` 반복, `checkLastDecision` 의 ≥2 뒤처짐 처리(설계 결정 후) | `PipelineDepthMax` | 5 | `TestMultiInFlightLeaderCrashThenRecovers` ← T3, `TestMultiInFlightThenViewChange` ← T4, `TestLaggingLeaderSyncsThenViewChanges`(ViewChangeTimeout 단축, sync→재시작 경로 로그 확인, 연쇄 뷰체인지 없음) |
-| 7 | `feat/config-barrier` | 설정 트랜잭션 전후 파이프라인 flush, 팔로워 측 거부 규칙 | `PipelineDepthMax` | 4 | `TestReconfigFlushesPipeline` ← `TestBasicReconfig` |
-| 8 | `feat/api-prev-proposal` | `pkg/api` 에 `*After(prevHeader)` 메서드 추가 (Fabric 파급) | `PipelineDepthMax` | 4 | 하네스 `App` 구현 추가 |
-| 9 | (fabric) `feat/smartbft-pipeline-verifier` | `verifier.go`/`assembler.go` 의 `*After` 구현, 배리어 신호, `Options` proto 필드(fabric-protos 포크 + replace), `go.mod` replace → 포크 | Fabric 채널 설정 | 8 | Fabric 통합 smoke |
+| 7 | `feat/adaptive-depth` | 파이프라인 깊이 W 의 적응 제어. 신호: in-flight 슬롯 점유율·라운드 지연, 상한 `PipelineDepthMax`, 규칙은 adaptive-batch 의 C 용 AIMD 골격 재사용. 설계는 feat 4 결과 확인 후 | `AdaptiveBatch` + `PipelineDepthMax` | 4, 6 | `TestAdaptiveDepthGrowsUnderLoad` |
+| 8 | `feat/config-barrier` | 설정 트랜잭션 전후 파이프라인 flush, 팔로워 측 거부 규칙 | `PipelineDepthMax` | 4 | `TestReconfigFlushesPipeline` ← `TestBasicReconfig` |
+| 9 | `feat/api-prev-proposal` | `pkg/api` 에 `*After(prevHeader)` 메서드 추가 (Fabric 파급) | `PipelineDepthMax` | 4 | 하네스 `App` 구현 추가 |
+| 10 | (fabric) `feat/smartbft-pipeline-verifier` | `verifier.go`/`assembler.go` 의 `*After` 구현, 배리어 신호, `Options` proto 필드(fabric-protos 포크 + replace), `go.mod` replace → 포크 | Fabric 채널 설정 | 8 | Fabric 통합 smoke |
 
-`prev-commit-dependency` 는 독립 브랜치를 두지 않는다 (2 의 `Validate()` 규칙 + C 노트가 설계 장 근거). 로테이션 ON 확장(선택지 b, 경계 규칙 B1~B5)은 논문 범위 밖 future work.
+리뷰(2026-11-02)로 7 `feat/adaptive-depth` 추가, 이후 번호 하나씩 밀림. `prev-commit-dependency` 는 독립 브랜치를 두지 않는다 (2 의 `Validate()` 규칙 + C 노트가 설계 장 근거). 로테이션 ON 확장(선택지 b, 경계 규칙 B1~B5)은 논문 범위 밖 future work.
 
 벤치: 라이브러리에 벤치마크가 없으므로 `bench/lib/` 를 별도 Go 모듈로 작성. **`test/` 하네스를 재사용하지 않고 `api.Comm` 을 직접 구현해 링크별 지연 큐를 둔다** — 송신 고루틴을 막지 않고 RTT 를 모사할 수 있어 Fabric+netem 전에 W·RTT 스윕의 1차 결과를 뽑을 수 있다. 로드 생성기·PP→Deliver 타이밍·CSV 포함. **비교군(baseline)도 `LeaderRotation=false` 로 돌린다**(Fabric 기준선과 동일 조건). 4 번 병합 직후 착수. PR 게이트 비용: `go test ./internal/... ./pkg/...` 약 18 s, `go test ./test` 약 2분 20초 (하트비트·뷰체인지 타임아웃 1분씩이 지배).
 

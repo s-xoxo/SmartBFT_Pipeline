@@ -21,4 +21,4 @@ PR 본문 사본: `docs/pr/`. 게이트 결과는 각 PR 본문과 코멘트에 
 
 ## 다음
 
-- 3 `feat/adaptive-batch`, 4 `feat/pipeline-window` — 상세 설계 문서 작성 완료 (`docs/notes/design-adaptive-batch.md`, `docs/notes/design-pipeline-window.md`, 2026-11-02). 리뷰어 확정 후 구현 착수.
+- 3 `feat/adaptive-batch`, 4 `feat/pipeline-window` — 상세 설계 문서 작성 완료 (`docs/notes/design-adaptive-batch.md`, `docs/notes/design-pipeline-window.md`, 2026-11-02). 리뷰어 결정 반영 완료 (`docs/notes/decisions-2026-11-02.md`). feat 3 구현 착수 (2026-11-02), feat 4 는 feat 3 병합 후.

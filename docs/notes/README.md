@@ -42,5 +42,7 @@
 
 | 브랜치 | 문서 | 상태 |
 |---|---|---|
-| 3 `feat/adaptive-batch` | [design-adaptive-batch.md](design-adaptive-batch.md) | 리뷰 대기 (열린 질문 10개) |
-| 4 `feat/pipeline-window` | [design-pipeline-window.md](design-pipeline-window.md) | 리뷰 대기 (열린 질문 12개) |
+| 3 `feat/adaptive-batch` | [design-adaptive-batch.md](design-adaptive-batch.md) | 결정 반영 완료, 구현 중 |
+| 4 `feat/pipeline-window` | [design-pipeline-window.md](design-pipeline-window.md) | 결정 반영 완료, feat 3 병합 후 구현 |
+
+결정 기록: [decisions-2026-11-02.md](decisions-2026-11-02.md) — PR 본문에 그대로 붙임.

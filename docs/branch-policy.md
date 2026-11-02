@@ -77,11 +77,12 @@ AdaptiveBatch      bool          // false = 원본 동작 (기본값)
 | 4 | `feat/pipeline-window` | 컨트롤러 토큰 세마포어·proposer 고루틴·in-order Decide 게이트, 뷰 `slots map[seq]`·라우팅·low watermark, 요청 풀 예약 상태, `InFlightData` 다중화, 리더의 미커밋 slot pre-prepare 재브로드캐스트, 팔로워 prepare 선행 조건, `decide:567` 중복 발급 수정 | `PipelineDepthMax` | 2 |
 | 5 | `feat/state-wal-window` | `WindowMark` 레코드, 절단 규칙, `Restore` 다중 in-flight 복원 | `PipelineDepthMax` | 4 |
 | 6 | `feat/viewchange-multi-inflight` | `repeated in_flight`, 연속 prepared 접두사 복구 규칙, 폐기 접미사 인증서 파기(D1), `commitInFlightProposal` 반복, 뒤처진 리더 sync→재시작 경로 테스트 | `PipelineDepthMax` | 5 |
-| 7 | `feat/config-barrier` | 설정 트랜잭션 전후 파이프라인 flush, 팔로워 측 거부 규칙 | `PipelineDepthMax` | 4 |
-| 8 | `feat/api-prev-proposal` | `pkg/api` 에 직전 제안 헤더를 받는 `*After` 메서드 추가 (Fabric 파급) | `PipelineDepthMax` | 4 |
-| 9 | (fabric) `feat/smartbft-pipeline-verifier` | `verifier.go`/`assembler.go` 의 `*After` 구현, 배리어 신호, `Options` proto 필드, `go.mod` replace → 포크 | Fabric 채널 설정 | 8 |
+| 7 | `feat/adaptive-depth` | 파이프라인 깊이 W 의 적응 제어. 신호: in-flight 슬롯 점유율·라운드 지연, 상한 `PipelineDepthMax`, 규칙은 adaptive-batch 의 C 용 AIMD 골격 재사용. 설계는 feat 4 결과 확인 후 | `AdaptiveBatch` + `PipelineDepthMax` | 4, 6 |
+| 8 | `feat/config-barrier` | 설정 트랜잭션 전후 파이프라인 flush, 팔로워 측 거부 규칙 | `PipelineDepthMax` | 4 |
+| 9 | `feat/api-prev-proposal` | `pkg/api` 에 직전 제안 헤더를 받는 `*After` 메서드 추가 (Fabric 파급) | `PipelineDepthMax` | 4 |
+| 10 | (fabric) `feat/smartbft-pipeline-verifier` | `verifier.go`/`assembler.go` 의 `*After` 구현, 배리어 신호, `Options` proto 필드, `go.mod` replace → 포크 | Fabric 채널 설정 | 8 |
 
-원안과의 차이: 설정·하네스 배관을 2 로 분리, 구 `leader-token-window`+`view-seq-window` 는 플래그 ON 테스트가 서로를 필요로 하므로 4 로 통합, WAL 복원(5)을 신규 추가, 구 `prev-commit-dependency` 는 2 의 `Validate()` 규칙으로 축소 (근거: `docs/notes/prev-commit-dependency.md`, 선택지 c). 5·6 은 분리 유지 (각각 안전성 논증이 필요하므로 diff 를 독립적으로 보여줘야 함).
+원안과의 차이: 리뷰(2026-11-02)로 7 `feat/adaptive-depth` 추가(논문 주제의 "파이프라인 깊이 동적 조절"), 이후 번호 하나씩 밀림. 설정·하네스 배관을 2 로 분리, 구 `leader-token-window`+`view-seq-window` 는 플래그 ON 테스트가 서로를 필요로 하므로 4 로 통합, WAL 복원(5)을 신규 추가, 구 `prev-commit-dependency` 는 2 의 `Validate()` 규칙으로 축소 (근거: `docs/notes/prev-commit-dependency.md`, 선택지 c). 5·6 은 분리 유지 (각각 안전성 논증이 필요하므로 diff 를 독립적으로 보여줘야 함).
 
 ## 4. PR 병합 규칙
 
