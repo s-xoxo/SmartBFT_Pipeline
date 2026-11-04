@@ -68,7 +68,7 @@ feat 4 (`feat/pipeline-window`, PR #4, merge `323db6b2`) 병합 보고에 대한
 
 > SmartBFT 의 "단일 in-flight" 가정은 설정값이나 명시적 검사로 코드에 드러나 있지 않다. 뷰 체인지가 다음 뷰로 넘길 제안을 담는 `InFlightData` 는 모든 WAL 기록 시점에 덮어쓰기로 갱신되고, 삭제 지점은 결정 전달 직후(`decide`)와 동기화 직후(`sync`) 두 곳뿐이다. 항목이 하나뿐이면 다음 기록이 이전 항목을 덮어쓰므로 뷰 체인지 경로에서 따로 비울 필요가 없었고, 그 결과 "뷰 체인지 시 폐기된 상태를 버린다" 는 요구(D1)는 코드 어디에도 적혀 있지 않은 **암묵적 불변식**으로만 성립해 왔다. 항목을 seq 별로 다중화하자 이 불변식이 깨졌고, 이는 파이프라이닝 미지원이 하나의 설계 결정이라기보다 상태 저장·뷰 체인지·WAL 복원 전반에 스며든 가정이었음을 보여준다. 본 구현은 뷰 시작 지점(`changeView`)에 `clearAbove(newLow)` 를 두어 이 불변식을 명시적 코드로 바꾸되, `> low` 만 삭제해 깊이 1 에서는 바이트 수준으로 원본과 같은 뷰 체인지 메시지를 유지한다.
 
-(출처: 위 "feat 6 전 확인" 과 [viewchange-trace.md](viewchange-trace.md) D1 코드 확인. 논문 본문에서는 `InFlightData` 등 식별자 대신 서술어로 바꿔 쓴다.)
+(출처: 위 "feat 6 전 확인" 과 [viewchange-trace.md](viewchange-trace.md) D1 코드 확인. 논문 본문에서는 `InFlightData` 등 식별자 대신 서술어로 바꿔 쓴다. 같은 장에 "연구 과정에서 발견해 보고한 원본 결함" 한 줄: WAL 복원이 체크포인트를 무시해 stale 제안을 되살리는 결함 — upstream 이슈 [hyperledger/SmartBFT#752](https://github.com/hyperledger/SmartBFT/issues/752), 재현 `results/2026-11-04-baseline-stale-restore/`.)
 
 ### 6초 재전송 Warn — `fix/pipeline-resend-noise` (PR #5)
 
@@ -89,4 +89,10 @@ feat 4 (`feat/pipeline-window`, PR #4, merge `323db6b2`) 병합 보고에 대한
 
 ## 5라운드 — feat 5 설계 승인 (2026-11-04)
 
-승인. truncateTo 는 리뷰어 의도("low 전달 시 truncate 레코드")와 달랐으나 설계안(PP 저장 시 `seq == low` 플래그) 채택, **truncateTo 규칙 + 체크포인트 필터 = 한 쌍** 명시. 열린 질문 결정: ① 보존량 상한 없음 + `wal_records_since_boundary` 메트릭, ② 필터 W=1 적용 + "W=1 편차 4번" + baseline 재현(→ 재현됨, 뷰 체인지 없음, upstream 이슈 초안), ③ `seq > C+W` error + PipelineDepthMax 안내 문구, ④ 복원 슬롯은 PR #5 재전송 규칙 대상에 포함, ⑤ 뷰 불일치 레코드는 버리고 Warn. 상세: [design-state-wal-window.md](design-state-wal-window.md) §12. feat 6 설계 문서에 D1·sync 순서 테스트 2 케이스를 그대로 가져간다.
+승인. truncateTo 는 리뷰어 의도("low 전달 시 truncate 레코드")와 달랐으나 설계안(PP 저장 시 `seq == low` 플래그) 채택, **truncateTo 규칙 + 체크포인트 필터 = 한 쌍** 명시. 열린 질문 결정: ① 보존량 상한 없음 + `wal_records_since_boundary` 메트릭, ② 필터 W=1 적용 + "W=1 편차 4번" + baseline 재현(→ 재현됨, 뷰 체인지 없음, upstream 이슈 [#752](https://github.com/hyperledger/SmartBFT/issues/752) 게시 2026-11-04), ③ `seq > C+W` error + PipelineDepthMax 안내 문구, ④ 복원 슬롯은 PR #5 재전송 규칙 대상에 포함, ⑤ 뷰 불일치 레코드는 버리고 Warn. 상세: [design-state-wal-window.md](design-state-wal-window.md) §12. feat 6 설계 문서에 D1·sync 순서 테스트 2 케이스를 그대로 가져간다.
+
+## 6라운드 — upstream 테스트 조정 승인·이슈 게시 승인·feat 6 설계 항목 (2026-11-04)
+
+- **#739 의도 확인**: PR 본문·커밋 메시지는 WAL 파일 증가(issue #736) 수정이며 테스트는 "in-flight proposal restart test 를 10회 재시작·파일 수 불변으로 강화" 한 것. `git log -S` 로 테스트 이름이 #739 에서 처음 등장. "sync 후에도 복원" 의도 없음 → `RestartSync(false)` 조정 정당. 이슈 본문에 한 문단으로 기재.
+- **이슈 게시 조건 3개 확인**: (1) upstream main `f55a7d12` 워크트리에 재현 테스트만 넣어 실행 → 동일 재현(포크 하네스 불필요; 테스트는 upstream `test/` 하네스만 사용). (2) 제목은 현상, 체크포인트 필터는 "One possible fix" 로 마지막, 연구 언급 없음. (3) 범위: 안전성 위반 아님, 라이브니스 지연, 영향 노드 1개면 뷰 체인지 없음, f+1 동시 재시작 시 불필요한 뷰 체인지 가능. → **게시: [hyperledger/SmartBFT#752](https://github.com/hyperledger/SmartBFT/issues/752)**.
+- feat 6 설계 문서 항목(재확인분 포함): [design-viewchange-multi-inflight.md](design-viewchange-multi-inflight.md).

@@ -35,4 +35,4 @@ feat 5 (`feat/state-wal-window`) 의 `Restore` 체크포인트 필터(`seq ≤ c
 
 ## upstream 보고
 
-초안: `upstream-issue-draft.md`. 게시 여부는 저자 확인 후.
+**게시됨 (2026-11-04): [hyperledger/SmartBFT#752](https://github.com/hyperledger/SmartBFT/issues/752)** — 제목 "Restored in-flight proposal below the checkpoint causes wrong-digest rejections after a restart". 본문 `upstream-issue-body.md`(재현 테스트 첨부, 수정안은 "one possible fix" 로 마지막에, 연구 언급 없음, 범위: 안전성 아님·라이브니스 지연·f+1 동시 재시작 시 불필요한 뷰 체인지 가능). 게시 전 확인: upstream main `f55a7d12`(#744–#748 포함) 에서도 같은 테스트로 재현됨(`SyncOnStart` 양쪽, precondition·증상 동일) — #748 은 NewView/ViewChange 레코드 뒤의 in-flight 복원에 체크포인트 비교를 넣었지만 `recoverProposed` 는 그대로다. #739 확인: 해당 테스트는 WAL 파일 증가 회귀 테스트(issue #736)로 #739 에서 추가·강화된 것이고, "sync 후에도 복원" 을 의도한 설명·커밋 메시지는 없음 → 조정 정당. 초안 이력: `upstream-issue-draft.md`.

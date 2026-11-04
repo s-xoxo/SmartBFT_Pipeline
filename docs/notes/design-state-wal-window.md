@@ -136,7 +136,7 @@ d. `test: restart with proposals in flight restores the same slots` — 통합 �
 | 열린 질문 | 결정 | 반영 |
 |---|---|---|
 | ① WAL 보존량 | 경계 이후 전부, 상한 없음. 메트릭 `wal_records_since_boundary` 추가 | `api.MetricsState.RecordsSinceBoundary`(gauge): truncateTo 레코드 → 1, 그 외 +1, Restore 시 `len(entries)` |
-| ② 체크포인트 필터 W=1 적용 | **적용**. 문서에 "W=1 편차 4번" 으로 기록, 정상 경로 메시지 집합 불변 명시. baseline 재현 테스트를 돌려 뷰 체인지 여부 확인, 나면 upstream 이슈 | 재현 결과: [results/2026-11-04-baseline-stale-restore/](../../results/2026-11-04-baseline-stale-restore/README.md) — **재현됨**(stale 복원, seq C+1·C+2 미결정, sync 1회로 복구), **뷰 체인지 없음**(영향 노드 1개). upstream 이슈 초안 작성, 게시는 저자 확인 후 |
+| ② 체크포인트 필터 W=1 적용 | **적용**. 문서에 "W=1 편차 4번" 으로 기록, 정상 경로 메시지 집합 불변 명시. baseline 재현 테스트를 돌려 뷰 체인지 여부 확인, 나면 upstream 이슈 | 재현 결과: [results/2026-11-04-baseline-stale-restore/](../../results/2026-11-04-baseline-stale-restore/README.md) — **재현됨**(stale 복원, seq C+1·C+2 미결정, sync 1회로 복구), **뷰 체인지 없음**(영향 노드 1개). upstream 이슈 [#752](https://github.com/hyperledger/SmartBFT/issues/752) 게시(2026-11-04, upstream main f55a7d12 에서도 재현 확인) |
 | ③ `seq > C+W` | error. 메시지에 "PipelineDepthMax 가 종료 시보다 작습니다. 종료 시 값 이상으로 올리거나 WAL 을 지우세요" | `filterInFlight`: "…either the WAL is corrupt or PipelineDepthMax is smaller than it was when the node stopped; raise it to at least its previous value or clear the WAL" |
 | ④ 리더 복원 슬롯 재전송 | 재전송함 — 별도 로직 없이 복원 슬롯을 PR #5 의 "prepare 정족수 미달 슬롯" 규칙 대상에 포함. W=1 은 복원 PP 가 PROPOSED 로 시작해 `doPhase` 가 1회 브로드캐스트하는 기존 경로와 같은지 확인 | `setup()` 이 리더면 `slot.prePrepare` 를 레코드에서 복원 → `resendPrePrepares` 가 `< slotPrepared` 인 것만 재전송. W=1 은 `resendTick == nil`, 복원 슬롯은 `prepareBroadcast=false` 로 prepare 1회 브로드캐스트(기존과 동일). 테스트 `TestViewStartsFromRestoredSlots` |
 | ⑤ 뷰 불일치 레코드 | 경계 뒤 레코드의 view 가 경계의 view 와 다르면 **버리고 Warn** (error 면 노드가 영영 못 뜸; 버리면 sync 로 따라잡고 안전성은 뷰 체인지 논증이 보장) | `filterInFlight`: 경계 없으면 최저 슬롯의 view 기준. 테스트 `TestRestoreFoldsWindow/"a record of another view…"` |
@@ -147,7 +147,7 @@ d. `test: restart with proposals in flight restores the same slots` — 통합 �
 |---|---|---|---|
 | 4 | `Restore` 가 체크포인트 이하의 PP-only 레코드를 복원하지 않는다 (baseline 은 복원해 stale 제안이 slot[C+1] 에 PROPOSED 로 들어감) | WAL 이 `[PP(n)]` 로 끝나고 sync 로 체크포인트가 n 을 넘은 뒤 재시작 | 없음 — WAL 바이트 동일, 메시지 히스토그램(정상 경로) 동일. 해당 경로에서는 baseline 의 stale prepare 1건·wrong digest 경고가 사라지고 노드가 즉시 참여 |
 
-구현 중 확인: upstream 통합 테스트 `TestRestartKeepsViewAndInFlightProposal`(`test/wal_truncation_test.go`, #739) 이 바로 이 경로를 밟는다 — 고립 노드가 `[PP(1)]` 을 가진 채 `Restart()`(sync ON) 하면 sync 가 seq 1 을 전달해 체크포인트 1 이 되고, baseline 은 그래도 PP(1) 을 복원해 prepare(1) 을 재브로드캐스트하며 테스트는 그것을 "in-flight 유지" 로 단언했다. 테스트의 서술 의도("정족수 전에 죽은 노드")는 결정을 아직 모르는 경우이므로 첫 재시작을 `RestartSync(false)` 로 바꿔 의도대로 검증한다(나머지 단언 무변경). baseline 재현 결과와 함께 upstream 이슈 초안에 포함.
+구현 중 확인: upstream 통합 테스트 `TestRestartKeepsViewAndInFlightProposal`(`test/wal_truncation_test.go`, #739) 이 바로 이 경로를 밟는다 — 고립 노드가 `[PP(1)]` 을 가진 채 `Restart()`(sync ON) 하면 sync 가 seq 1 을 전달해 체크포인트 1 이 되고, baseline 은 그래도 PP(1) 을 복원해 prepare(1) 을 재브로드캐스트하며 테스트는 그것을 "in-flight 유지" 로 단언했다. 테스트의 서술 의도("정족수 전에 죽은 노드")는 결정을 아직 모르는 경우이므로 첫 재시작을 `RestartSync(false)` 로 바꿔 의도대로 검증한다(나머지 단언 무변경). baseline 재현 결과와 함께 upstream 이슈 [#752](https://github.com/hyperledger/SmartBFT/issues/752) 에 기재(#739 는 WAL 증가 회귀 테스트로 확인, "sync 후 복원" 의도 없음).
 
 (편차 1~3: R8 순서, 히스토그램 범위 비교 종류, PR #5 의 W>1 전용 로그/재전송 — 모두 W=1 바이트 동일.)
 
