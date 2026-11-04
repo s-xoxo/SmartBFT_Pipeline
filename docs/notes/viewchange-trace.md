@@ -371,6 +371,8 @@ ViewChanged(currView, mySequence+1)                    // 1228 그대로
 3. W=1 에서 no-op 임을 `TestMessageHistogramMatchesBaseline` 과 단위 테스트(`InFlightData` 단일 항목 `≤ low`)로 고정.
 4. feat 5 의 `Restore` 는 WAL 을 "마지막 NewView(또는 결정) 경계 이후" 만 복원해 WAL 쪽 D1 을 지킨다.
 
+**sync 경로와의 순서 (4라운드 조건, 2026-11-04 확인).** `Controller.run` 의 sync 분기는 `sync()` 안에서 `clearUpTo(syncedSeq)` 를 끝낸 뒤 `changeView(view, syncedSeq+1, dec)` 를 부르므로, `clearAbove` 는 **`changeView` 의 인자 `newProposalSequence`** 를 써야 한다(`c.currView.ProposalSequence`·`ViewSequences` 는 옛 뷰의 low). 그러면 순서는 `clearUpTo(S) → clearAbove(S+1)`, 남는 집합 ⊆ `{S+1}` 로 baseline `maybePruneInFlight` 가 남기는 항목과 같다. `changeView` 호출 4곳(ViewChanger `mySequence+1`, sync `latest+1`, sync 무결과 `ViewSequences.ProposalSeq`, 로테이션 `md.LatestSequence+1`) 의 인자는 모두 새 low 다. feat 6 테스트 `TestInFlightClearedAfterSyncAndViewChange`: in-flight `p..p+2` 에서 (a) sync 가 `p+2` 까지 → 비어 있음, (b) sync 가 `p` 까지 → `{p+1}` 만 남음. 결정 기록: [decisions-2026-11-04.md](decisions-2026-11-04.md) 4라운드.
+
 ## 열린 문제
 
 1. **[?] `checkLastDecision` 616 (`> mySequence+1` 거절) 과 `validateNewViewMsg` 1051 (`> mySequence+1` 즉시 sync)** — 윈도우에서는 정직 노드 간 체크포인트 차이가 최대 W 이므로, 뒤처진 새 리더는 앞선 정직 노드의 ViewData 를 모두 거절해 quorum 을 못 채운다. ViewData 가 last_decision 하나만 싣는 구조라 중간 decision 을 받아 검증·전달하는 `650-673` 경로를 W 로 확장할 수 없다. 1차안: 리더가 `> my+1` 메시지를 보류 집계해 **f+1 명이 ≥ my+2 를 주장하면** `Synchronizer.Sync()` 후 체크포인트를 다시 읽어 보류 메시지를 재검증. 대안: ViewData 에 `repeated Proposal recent_decisions` 를 추가(크기 비용, 서명 검증 비용 W 배). 주석 `587-589` 의 "sender might be malicious 라 sync 안 함" 원칙과 충돌하므로 결정 필요. 코드만으로는 어느 쪽이 맞는지 판단 불가.

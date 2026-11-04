@@ -25,6 +25,7 @@ git push origin baseline
 main                       통합 브랜치. 직접 커밋 허용 (아래 1-1 규칙 내에서)
 ├─ probe/<topic>           코드 읽기·로그 삽입·실험용. 병합하지 않음. 결론은 docs/로 옮긴 뒤 삭제
 ├─ feat/<area>             프로토콜·동작 변경. PR로만 main에 병합
+├─ fix/<topic>             병합된 feat 의 작은 후속 수정(로그 레벨, 범위 축소 등). feat 와 같은 게이트·PR 규칙, 플래그 뒤 동작만 변경
 ├─ exp/<yyyymmdd>-<topic>  특정 실험 시점의 코드 고정. 병합하지 않고 태그로만 남김
 └─ sync/upstream-<date>    upstream 변경 병합 작업용. 충돌 해결 후 main에 병합
 ```
@@ -45,6 +46,8 @@ main                       통합 브랜치. 직접 커밋 허용 (아래 1-1 �
 - Fabric 포크의 `orderer/consensus/smartbft/` 변경
 
 **판단 기준 한 줄:** `baseline` 과 같은 설정으로 돌렸을 때 메시지 흐름이 1바이트라도 달라지면 `feat/`.
+
+`fix/` 는 그 기준을 통과한 `feat/` 의 후속 수정에만 쓴다(새 기능·새 플래그 없음). 예: `fix/pipeline-resend-noise` (2026-11-04, feat 4 의 W>1 재전송 범위·로그 레벨).
 
 ## 2. 기능 플래그 원칙 (가장 중요)
 

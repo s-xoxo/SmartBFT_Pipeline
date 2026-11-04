@@ -406,6 +406,15 @@ view-slots 노트는 `doPhase :292/:295` 를 "주기적 재브로드캐스트" �
 
 **W=1 은 재브로드캐스트 없음(바이트 동일) 을 유지한다.** 이유: (i) baseline 에 주기 재전송이 전혀 없음이 §5.1 로 확인됨 — 켜면 메시지 집합이 바뀐다; (ii) W=1 에서 pre-prepare 유실의 결과(해당 노드가 sync 로 따라옴)는 baseline 의 알려진 동작이며 기존 테스트(`TestNodeOneSequenceBehindRejoins` 주석 `view_split_test.go:369-371` "the pre-prepare … is not sent again") 가 그 동작을 명시적으로 서술한다. "slot > low 만 재전송" 변형은 W=1 에서 공집합이므로 동치이지만, 조건식보다 `resendTick == nil` 이 의도를 더 분명히 드러낸다.
 
+### 5.4 병합 후 수정 (2026-11-04, `fix/pipeline-resend-noise`, PR #5)
+
+1차 벤치에서 W>1 의 6 s 재전송이 이미 전달한 팔로워에 `Got pre-prepare for sequence N but we're in sequence N+k` Warn 을 남겼다(셀당 6–12, 손실·뷰 체인지 없음). 리뷰어 지시로 두 가지를 바꿨다 — 둘 다 W>1 전용:
+
+- **재전송 대상 축소**: `slot.phase >= slotCommitted` 제외 → **`slot.phase >= slotPrepared` 제외**. 리더가 prepare 정족수를 모은 슬롯은 정족수 노드 전부가 그 pre-prepare 를 갖고 있고(§4 접두사 규칙으로 그 아래도), 나머지 ≤ f 노드는 prev 링·sync 로 따라온다(baseline 경로). 재전송 창이 "제안 → 정족수" 한 RTT 로 줄어 전달 완료 노드에 닿는 경우가 거의 없어진다.
+- **prev 링의 pre-prepare 로그**: `handlePrevSeqMessage` 가 W>1 이면 Debug, W=1 은 Warn 유지(`TestTwoPrePreparesInARow` 와 `TestViewSlotRouting` 의 W=1 기대 불변).
+
+테스트: `TestViewLeaderResendsPrePrepares/"depth 2 does not resend prepared sequences"`, `TestViewPrevSeqPrePrepareLogLevel`(depth 1 Warn, 2·4 Debug). 결정 기록: [decisions-2026-11-04.md](decisions-2026-11-04.md) 4라운드.
+
 ---
 
 ## 6. 컨트롤러
