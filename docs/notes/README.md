@@ -45,8 +45,8 @@
 | 3 `feat/adaptive-batch` | [design-adaptive-batch.md](design-adaptive-batch.md) | 병합 완료 (PR #3, 2026-11-02) |
 | 4 `feat/pipeline-window` | [design-pipeline-window.md](design-pipeline-window.md) | 병합 완료 (PR #4, 2026-11-03), §15 병합 후 리뷰 |
 | — `fix/pipeline-resend-noise` | [design-pipeline-window.md](design-pipeline-window.md) §5.4 | 병합 완료 (PR #5, 2026-11-04) — W>1 재전송 범위·로그 레벨 |
-| 5 `feat/state-wal-window` | [design-state-wal-window.md](design-state-wal-window.md) | 설계 리뷰 대기 (2026-11-04) |
+| 5 `feat/state-wal-window` | [design-state-wal-window.md](design-state-wal-window.md) | 병합 완료 (PR #6, 2026-11-04), §12 리뷰 결정 반영 |
 
 결정 기록: [decisions-2026-11-02.md](decisions-2026-11-02.md) — PR 본문에 그대로 붙임.
 
-병합 후 결정 (2026-11-04, feat 4 PR #4 리뷰): [decisions-2026-11-04.md](decisions-2026-11-04.md) — R8, 히스토그램 논문 서술, feat 5 WAL 형식·복원 토큰·병합 기준, D1 코드 확인 결과, 1차 벤치. 4라운드: sync→changeView 순서 확인, 논문 단락 초안, 재전송 Warn 수정(PR #5), feat 5 체크포인트 필터.
+병합 후 결정 (2026-11-04, feat 4 PR #4 리뷰): [decisions-2026-11-04.md](decisions-2026-11-04.md) — R8, 히스토그램 논문 서술, feat 5 WAL 형식·복원 토큰·병합 기준, D1 코드 확인 결과, 1차 벤치. 4라운드: sync→changeView 순서 확인, 논문 단락 초안, 재전송 Warn 수정(PR #5), feat 5 체크포인트 필터. 5라운드: feat 5 설계 승인·열린 질문 ①~⑤ 결정.

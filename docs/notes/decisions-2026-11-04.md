@@ -86,3 +86,7 @@ feat 4 (`feat/pipeline-window`, PR #4, merge `323db6b2`) 병합 보고에 대한
 지적: truncateTo 를 "low 슬롯 커밋 시" 로 바꾸면 복원 시작점이 마지막 truncate 지점이 된다. 노드가 low 를 커밋(전달)하고 다음 truncate 전에 죽으면 경계 뒤에 **이미 커밋된 low 의 레코드**가 남고, 이를 in-flight 로 복원하면 중복 전달 시도(`MutuallyExclusiveDeliver` 가 막음)와 함께 토큰 계산 `W − restored` 가 1 틀어진다.
 
 **결정:** `Restore` 는 fold 결과 중 `seq ≤ 체크포인트 seq`(`Checkpoint.Get()` 의 `LatestSequence`; Deliver 직후 갱신) 인 항목을 **버린다**. baseline 의 `recoverPrepared` 가 `v.ProposalSequence > seq` 를 "safely committed" 으로 버리던 분기의 일반화이며, W=1 에서는 그 분기와 동일하게 동작한다(`recoverProposed` 쪽은 W=1 에서 `seq ≤ 체크포인트` 인 PP 가 경계 뒤에 남을 수 없어 영향 없음). 상세: [design-state-wal-window.md](design-state-wal-window.md) §5.
+
+## 5라운드 — feat 5 설계 승인 (2026-11-04)
+
+승인. truncateTo 는 리뷰어 의도("low 전달 시 truncate 레코드")와 달랐으나 설계안(PP 저장 시 `seq == low` 플래그) 채택, **truncateTo 규칙 + 체크포인트 필터 = 한 쌍** 명시. 열린 질문 결정: ① 보존량 상한 없음 + `wal_records_since_boundary` 메트릭, ② 필터 W=1 적용 + "W=1 편차 4번" + baseline 재현(→ 재현됨, 뷰 체인지 없음, upstream 이슈 초안), ③ `seq > C+W` error + PipelineDepthMax 안내 문구, ④ 복원 슬롯은 PR #5 재전송 규칙 대상에 포함, ⑤ 뷰 불일치 레코드는 버리고 Warn. 상세: [design-state-wal-window.md](design-state-wal-window.md) §12. feat 6 설계 문서에 D1·sync 순서 테스트 2 케이스를 그대로 가져간다.

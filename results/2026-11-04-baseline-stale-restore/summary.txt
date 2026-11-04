@@ -1,0 +1,19 @@
+--- PASS: TestStaleProposedRecordRestore (15.10s)
+--- PASS: TestStaleProposedRecordRestore/syncOnRestart=false (8.05s)
+--- PASS: TestStaleProposedRecordRestore/syncOnRestart=true (7.05s)
+2026-11-04T18:19:27.527+0900	WARN	bft/view.go:460	Got wrong digest at processPrepares for prepare with seq 3, expecting 7ab3beedb958ef237f2c6b6afe93c1735759e9b10887adab8bf97db9346f0d2c but got 7b5122706aff258cd0c43552bd5e0f3ebdae3c6f5df8ea3e537020cee3b51d29, we are in seq 3	{"t": "TestStaleProposedRecordRestore/syncOnRestart=false", "id": 4}
+2026-11-04T18:19:27.531+0900	WARN	bft/view.go:460	Got wrong digest at processPrepares for prepare with seq 3, expecting 7ab3beedb958ef237f2c6b6afe93c1735759e9b10887adab8bf97db9346f0d2c but got 7b5122706aff258cd0c43552bd5e0f3ebdae3c6f5df8ea3e537020cee3b51d29, we are in seq 3	{"t": "TestStaleProposedRecordRestore/syncOnRestart=false", "id": 4}
+2026-11-04T18:19:27.541+0900	WARN	bft/view.go:460	Got wrong digest at processPrepares for prepare with seq 3, expecting 7ab3beedb958ef237f2c6b6afe93c1735759e9b10887adab8bf97db9346f0d2c but got 7b5122706aff258cd0c43552bd5e0f3ebdae3c6f5df8ea3e537020cee3b51d29, we are in seq 3	{"t": "TestStaleProposedRecordRestore/syncOnRestart=false", "id": 4}
+2026-11-04T18:19:34.766+0900	WARN	bft/view.go:460	Got wrong digest at processPrepares for prepare with seq 3, expecting 7ab3beedb958ef237f2c6b6afe93c1735759e9b10887adab8bf97db9346f0d2c but got 7b5122706aff258cd0c43552bd5e0f3ebdae3c6f5df8ea3e537020cee3b51d29, we are in seq 3	{"t": "TestStaleProposedRecordRestore/syncOnRestart=true", "id": 4}
+2026-11-04T18:19:34.771+0900	WARN	bft/view.go:460	Got wrong digest at processPrepares for prepare with seq 3, expecting 7ab3beedb958ef237f2c6b6afe93c1735759e9b10887adab8bf97db9346f0d2c but got 7b5122706aff258cd0c43552bd5e0f3ebdae3c6f5df8ea3e537020cee3b51d29, we are in seq 3	{"t": "TestStaleProposedRecordRestore/syncOnRestart=true", "id": 4}
+2026-11-04T18:19:34.776+0900	WARN	bft/view.go:460	Got wrong digest at processPrepares for prepare with seq 3, expecting 7ab3beedb958ef237f2c6b6afe93c1735759e9b10887adab8bf97db9346f0d2c but got 7b5122706aff258cd0c43552bd5e0f3ebdae3c6f5df8ea3e537020cee3b51d29, we are in seq 3	{"t": "TestStaleProposedRecordRestore/syncOnRestart=true", "id": 4}
+ok  	github.com/hyperledger/SmartBFT/test	15.307s
+stale_restore_repro_test.go:265: step 4: node 4 WAL at restart (1 entries): [[0] proposed_record view=0 seq=1]
+stale_restore_repro_test.go:266: step 4: node 4 application checkpoint at restart: view 0 seq 2
+stale_restore_repro_test.go:268: step 4: pre-restart precondition (WAL == [PP(1)], checkpoint == 2, no new_view record) met: true
+stale_restore_repro_test.go:297: step 5: after seq 3 decided by nodes 1-3, node 4 logged 'Got wrong digest at processPrepares': true
+stale_restore_repro_test.go:355:   'Got wrong digest at processCommits'                                   0
+stale_restore_repro_test.go:355:   'Got wrong digest at processPrepares'                                  3
+stale_restore_repro_test.go:359:   node 4: Got wrong digest at processPrepares for prepare with seq 3, expecting 7ab3beedb958ef237f2c6b6afe93c1735759e9b10887adab8bf97db9346f0d2c but got 7b5122706aff258cd0c43552bd5e0f3ebdae3c6f5df8ea3e537020cee3b51d29, we are in seq 3
+stale_restore_repro_test.go:388: SUMMARY syncOnRestart=false: precondition=true restoredStale=true staleSeq1PrepareReceivedByOthers=3 wrongDigest=3 missedSeq3Within3s=true syncsAfterRestart=1 syncDelivers=2 viewChangeOnNode4=false viewChangeLinesAllNodes=0 delivered=[3 4]
+stale_restore_repro_test.go:388: SUMMARY syncOnRestart=true: precondition=true restoredStale=true staleSeq1PrepareReceivedByOthers=3 wrongDigest=3 missedSeq3Within3s=true syncsAfterRestart=1 syncDelivers=2 viewChangeOnNode4=false viewChangeLinesAllNodes=0 delivered=[3 4]

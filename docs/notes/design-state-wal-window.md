@@ -126,3 +126,35 @@ d. `test: restart with proposals in flight restores the same slots` — 통합 �
 3. **`seq > C+W` 처리**: error(권고, feat 4 거부와 같은 메시지 양식) vs. 초과분 버림. W 를 줄여 재시작하는 운영 시나리오는 논문 실험에 없음.
 4. **리더 복원 슬롯의 pre-prepare 재전송**: 복원한 `prePrepare` 를 재전송 대상에 넣는다(권고). 넣지 않으면 리더 재시작 후 팔로워가 놓친 PP 를 영구히 못 받고 뷰 체인지로만 회복.
 5. **`v.Number` 와 레코드 뷰 불일치**: 복원 항목의 뷰가 서로 다르면(경계 없이 뷰가 바뀐 비정상 WAL) error 로 할지. (권고: error — 정직한 WAL 에서는 NV 레코드가 경계)
+
+## 12. 설계 리뷰 결정 반영 (2026-11-04, 승인)
+
+리뷰어 승인. truncateTo 해석은 의도("low 가 커밋되어 전달될 때 잘라낸다", 전달 시 빈 truncate 레코드 1개 추가)와 달랐으나 **설계안(§4, PP 저장 시 플래그) 채택** — 기존 레코드 형식·쓰기 지점 그대로, W=1 에서 `Save(pp, true)` 와 정확히 같다.
+
+**truncateTo 규칙과 체크포인트 필터는 한 쌍이다 (명시).** low 슬롯의 PP 를 저장한 뒤 그 앞 레코드는 잘리지만 low 자체는 아직 미전달이므로 `Restore` 가 복원 대상에 넣는 것이 맞고, low 전달 후 재시작이면 필터(§5-4)가 버린다. 하나만 바꾸면 복원 집합이 틀어진다(truncate 만 바꾸면 미전달 레코드 유실, 필터만 빼면 전달 완료 레코드 재복원·토큰 1 오차). 코드 주석(`view.go processProposal`, `state.go Restore`)에도 같은 문장을 두었다.
+
+| 열린 질문 | 결정 | 반영 |
+|---|---|---|
+| ① WAL 보존량 | 경계 이후 전부, 상한 없음. 메트릭 `wal_records_since_boundary` 추가 | `api.MetricsState.RecordsSinceBoundary`(gauge): truncateTo 레코드 → 1, 그 외 +1, Restore 시 `len(entries)` |
+| ② 체크포인트 필터 W=1 적용 | **적용**. 문서에 "W=1 편차 4번" 으로 기록, 정상 경로 메시지 집합 불변 명시. baseline 재현 테스트를 돌려 뷰 체인지 여부 확인, 나면 upstream 이슈 | 재현 결과: [results/2026-11-04-baseline-stale-restore/](../../results/2026-11-04-baseline-stale-restore/README.md) — **재현됨**(stale 복원, seq C+1·C+2 미결정, sync 1회로 복구), **뷰 체인지 없음**(영향 노드 1개). upstream 이슈 초안 작성, 게시는 저자 확인 후 |
+| ③ `seq > C+W` | error. 메시지에 "PipelineDepthMax 가 종료 시보다 작습니다. 종료 시 값 이상으로 올리거나 WAL 을 지우세요" | `filterInFlight`: "…either the WAL is corrupt or PipelineDepthMax is smaller than it was when the node stopped; raise it to at least its previous value or clear the WAL" |
+| ④ 리더 복원 슬롯 재전송 | 재전송함 — 별도 로직 없이 복원 슬롯을 PR #5 의 "prepare 정족수 미달 슬롯" 규칙 대상에 포함. W=1 은 복원 PP 가 PROPOSED 로 시작해 `doPhase` 가 1회 브로드캐스트하는 기존 경로와 같은지 확인 | `setup()` 이 리더면 `slot.prePrepare` 를 레코드에서 복원 → `resendPrePrepares` 가 `< slotPrepared` 인 것만 재전송. W=1 은 `resendTick == nil`, 복원 슬롯은 `prepareBroadcast=false` 로 prepare 1회 브로드캐스트(기존과 동일). 테스트 `TestViewStartsFromRestoredSlots` |
+| ⑤ 뷰 불일치 레코드 | 경계 뒤 레코드의 view 가 경계의 view 와 다르면 **버리고 Warn** (error 면 노드가 영영 못 뜸; 버리면 sync 로 따라잡고 안전성은 뷰 체인지 논증이 보장) | `filterInFlight`: 경계 없으면 최저 슬롯의 view 기준. 테스트 `TestRestoreFoldsWindow/"a record of another view…"` |
+
+### W=1 편차 4번 (기록)
+
+| # | 편차 | 조건 | 정상 경로 영향 |
+|---|---|---|---|
+| 4 | `Restore` 가 체크포인트 이하의 PP-only 레코드를 복원하지 않는다 (baseline 은 복원해 stale 제안이 slot[C+1] 에 PROPOSED 로 들어감) | WAL 이 `[PP(n)]` 로 끝나고 sync 로 체크포인트가 n 을 넘은 뒤 재시작 | 없음 — WAL 바이트 동일, 메시지 히스토그램(정상 경로) 동일. 해당 경로에서는 baseline 의 stale prepare 1건·wrong digest 경고가 사라지고 노드가 즉시 참여 |
+
+구현 중 확인: upstream 통합 테스트 `TestRestartKeepsViewAndInFlightProposal`(`test/wal_truncation_test.go`, #739) 이 바로 이 경로를 밟는다 — 고립 노드가 `[PP(1)]` 을 가진 채 `Restart()`(sync ON) 하면 sync 가 seq 1 을 전달해 체크포인트 1 이 되고, baseline 은 그래도 PP(1) 을 복원해 prepare(1) 을 재브로드캐스트하며 테스트는 그것을 "in-flight 유지" 로 단언했다. 테스트의 서술 의도("정족수 전에 죽은 노드")는 결정을 아직 모르는 경우이므로 첫 재시작을 `RestartSync(false)` 로 바꿔 의도대로 검증한다(나머지 단언 무변경). baseline 재현 결과와 함께 upstream 이슈 초안에 포함.
+
+(편차 1~3: R8 순서, 히스토그램 범위 비교 종류, PR #5 의 W>1 전용 로그/재전송 — 모두 W=1 바이트 동일.)
+
+### 병합 기준 (재확인)
+
+1. `Consensus.Start` 의 W>1 재시작 거부 제거 — `InFlightSequenceInWAL` 삭제.
+2. 통합: in-flight ≥2 → Restart → 같은 슬롯 집합 복원 → 토큰 W−m → 정상 커밋 — `TestPipelineRestartRestoresInFlight`(팔로워, m=2), `TestPipelineLeaderRestartWithInFlight`(리더, m=2 → 토큰 1).
+3. 통합: 전달 직후 재시작 → 필터가 low 버림 → 토큰 W — `TestPipelineRestartAfterDeliveryStartsClean`.
+4. ② baseline 재현 테스트 결과 기록 — 위.
+5. 히스토그램 테스트 통과.
