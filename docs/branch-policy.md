@@ -97,6 +97,7 @@ go test ./test/...            # 인메모리 네트워크 테스트. 느리므�
 
 - 플래그 OFF 상태에서 기존 테스트 전부 통과 + 플래그 ON 테스트 최소 1개 추가
 - 셀프 리뷰 체크리스트를 PR 본문에 붙임 (`docs/verification-checklist.md` 해당 절)
+- 병합된 `feat/` 브랜치는 원격에 **보존**한다(삭제·이름 변경 없음). 기준은 브랜치가 아니라 **merge commit** 이며 `docs/progress.md` 표가 그 목록이다
 - 혼자 작업이므로 승인자는 없지만, PR 본문은 반드시 작성 — 나중에 논문 구현 장을 쓸 때 PR 본문이 1차 자료가 됨. 내용: 무엇을/왜/안전성에 미치는 영향/플래그/테스트 (템플릿: `templates/PULL_REQUEST_TEMPLATE.md`)
 
 ## 5. probe/ 브랜치 사용법

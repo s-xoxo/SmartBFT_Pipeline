@@ -99,4 +99,6 @@
 3. **뷰 체인지 프로토콜의 단일 in-flight 가정** (`ViewData.in_flight_proposal`, `ValidateInFlight`, `CheckInFlight` `viewchanger.go:851`) 은 이 섹션 범위 밖이지만 WAL 복구 집합(여러 in-flight) 과 반드시 정합해야 한다 → 뷰 체인지 담당 노트와 교차 확인 필요.
 4. **`new_view`/`view_change` 레코드 위치**: 현재 `LoadNewViewIfApplicable/LoadViewChangeIfApplicable` (`state.go:75-111`, 호출 `consensus.go:482,497`) 는 "마지막 레코드" 만 본다. compaction 재기록이 이들 뒤에 PP/C 를 다시 쓰면 "마지막" 이 바뀌어 뷰 체인지 복구가 무시될 수 있다 → 재기록은 뷰 체인지 레코드 뒤에는 하지 않거나, Load* 도 fold 방식으로 바꿔야 한다. 미해결.
 5. **파일 크기 초과**: `offset > FileSizeBytes-16` 검사가 쓰기 뒤라 (`writeaheadlog.go:502`) 레코드 하나만큼 초과 가능 — 원본 동작이며 바꾸지 않지만, W×10 MiB 재기록 묶음이 한 파일에 몰리면 파일이 64 MiB + 40 MiB 가 될 수 있음. 문제인지 여부 미판단.
+→ **결정 (2026-11-04, feat 5 착수 전)**: 저장 형식은 **슬롯별 레코드를 그대로 쌓고 `Restore` 가 "마지막 경계 이후 전부" 를 읽는 방식**(윈도우 스냅샷 `WindowMark` 1개 방식은 채택하지 않음). `truncateTo` 는 "low 슬롯 커밋 시" 로 바꿔 자연 정리(feat 4 가 유지한 `Save(pp, true)` 가 바뀌는 지점). 경계는 마지막 결정과 `NewView` 레코드(열린 문제 4, D1). 상세: [decisions-2026-11-04.md](decisions-2026-11-04.md).
+
 6. **`WindowMark` 의 하위 호환**: W=1 로 되돌린 노드가 W>1 시절 WAL(`window_mark` 포함) 을 읽을 때 원본 `Restore` 는 `unrecognized record` 에러 (`state.go:150`) 를 낸다. 포크에서는 항상 새 Restore 를 쓰므로 문제 없지만, 업스트림 바이너리와 WAL 디렉터리 공유는 불가하다고 명시해야 한다.

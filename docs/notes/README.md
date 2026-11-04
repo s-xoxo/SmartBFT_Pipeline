@@ -42,7 +42,9 @@
 
 | 브랜치 | 문서 | 상태 |
 |---|---|---|
-| 3 `feat/adaptive-batch` | [design-adaptive-batch.md](design-adaptive-batch.md) | 결정 반영 완료, 구현 중 |
-| 4 `feat/pipeline-window` | [design-pipeline-window.md](design-pipeline-window.md) | 결정 반영 완료, feat 3 병합 후 구현 |
+| 3 `feat/adaptive-batch` | [design-adaptive-batch.md](design-adaptive-batch.md) | 병합 완료 (PR #3, 2026-11-02) |
+| 4 `feat/pipeline-window` | [design-pipeline-window.md](design-pipeline-window.md) | 병합 완료 (PR #4, 2026-11-03), §15 병합 후 리뷰 |
 
 결정 기록: [decisions-2026-11-02.md](decisions-2026-11-02.md) — PR 본문에 그대로 붙임.
+
+병합 후 결정 (2026-11-04, feat 4 PR #4 리뷰): [decisions-2026-11-04.md](decisions-2026-11-04.md) — R8, 히스토그램 논문 서술, feat 5 WAL 형식·복원 토큰·병합 기준, D1 코드 확인 결과, 1차 벤치.

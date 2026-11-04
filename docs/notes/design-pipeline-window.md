@@ -760,3 +760,11 @@ test-harness 노트의 15개(이 체크아웃 위치): `"%d collected %d prepare
 - **§6.5 `Controller.Decide` 블로킹 유지**: 한계 기록 — Deliver 완료까지 뷰 고루틴이 블록되어 다른 슬롯의 prepare/commit 이 `incMsgs` 에 적체된다. W 를 키워도 TPS 가 오르지 않으면 첫 용의자. 판별: `view_latency_batch_save`(= Deliver 소요, PR #2 주석) 를 라운드 지연과 함께 그래프에.
 - **§1 한계 (d)**: 승인. 추가 요구 — **W>1 이고 WAL 에 in-flight 레코드가 있는 상태의 재시작을 `Restore`(또는 `Consensus.Start`)에서 명시적으로 거부(error 반환, panic 아님)**. 실험 중 실수로 밟았을 때 원인이 즉시 드러나게 한다. 브랜치 5 가 이 거부를 제거한다.
 - §13 ①②③⑩ 및 나머지: 권고대로.
+
+## 15. 병합 후 리뷰 (2026-11-04, PR #4)
+
+결정 전문은 [decisions-2026-11-04.md](decisions-2026-11-04.md).
+
+- **`Batcher.Reset` 순서**: 설계 편차가 아니라 proposer 고루틴 분리가 드러낸 순서 의존성으로 재분류. [leader-token-flow.md](leader-token-flow.md) 회수 규칙에 **R8 (배처 열기 → 뷰 시작 → 토큰 발급)** 로 기록. PR 본문의 "차이 2" 는 그대로 두되 이 문서가 정본.
+- **히스토그램 판정 방식**: 승인. 논문 서술은 **"pre-prepare / prepare / commit / view-data / new-view 메시지 수가 원본과 정확히 일치"** 만 본문에, 범위 비교 종류(assist 응답, state transfer, view-change 재전송, heartbeat)는 각주로.
+- **D1 과 `InFlightData`**: 코드 확인 결과 뷰 체인지 경로에 clear 지점이 없어 W>1 에서 폐기 접미사 항목이 남는다. feat 6 요구 사항으로 확정(`clearAbove(low)` in `changeView`). 상세: [viewchange-trace.md](viewchange-trace.md) "D1 코드 확인".

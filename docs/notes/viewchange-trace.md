@@ -348,6 +348,29 @@ ViewChanged(currView, mySequence+1)                    // 1228 그대로
 - *Lemma 5 (W=1 환원).* W=1 에서 접두사 길이는 ≤ 1, D1 은 기존 `InFlightData.clear` 와 동일, D2 는 공허하게 참, ViewData 바이트 동일.
 - *정리.* Lemma 2–4 로부터 전달 기준 안전성이 성립한다. 라이브니스는 별도(열린 문제 1·3).
 
+### D1 코드 확인 (feat 4 병합 후, 2026-11-04)
+
+리뷰어 질문: feat 4 의 in-order 게이트가 보관하는 "미전달 commit 서명" 이 D1 의 파기 대상에 포함되는가. 대상 커밋 main `323db6b2`.
+
+| 상태 저장소 | 소유 | 뷰 체인지 시 운명 | D1 |
+|---|---|---|---|
+| `View.slots[seq]` — prepare/commit 투표, `signatures`(검증된 commit 서명, 게이트 버퍼), `mySig`, `prePrepare`, `proposal` | View | `View.Abort()` 로 뷰 고루틴 종료, 새 뷰는 빈 `slots` 로 시작(`view.go setup`) | **자동 충족** |
+| `verifiedSigs` 채널의 미수거 서명 | View | 송신 고루틴이 `abortChan` 에서 포기, 채널은 뷰와 함께 버려짐 | 자동 충족 |
+| `InFlightData.entries[seq]` — 제안 + `prepared` 플래그 | `Consensus.inFlight`, `PersistedState`·`Controller`·`ViewChanger` 가 공유 | **비워지지 않는다.** 쓰기: 모든 `State.Save` (`storeProposal`/`storePrepared`, seq 키). 삭제: `decide → pruneDelivered(≤ delivered, 최고 항목 보존)`, `sync → maybePruneInFlight → clearUpTo(≤ synced)` **두 곳뿐**. `abortView`·`changeView`·`startView`·`processNewViewMsg`·`commitInFlightProposal` 어디에도 clear 가 없다 | **위반 (W>1)** |
+| WAL 레코드 (폐기 슬롯의 PP/C) | `pkg/wal` | 남는다. 뷰 체인지 완료 시 `SavedMessage_NewView` 레코드가 뒤에 추가되고(`viewchanger.go:1207`), `LoadNewViewIfApplicable` 이 마지막 레코드를 보므로 재시작이 옛 슬롯을 복원하지는 않음 | 재시작 경로는 충족, feat 5 의 "체크포인트 이후 전부 읽기" 는 **NewView 레코드를 경계로** 삼아야 함 |
+
+위 2026-11-02 D1 문단의 "`controller.go abortView` 경로의 `InFlightData.clear` 를 `clearAbove` 로 일반화" 는 **전제가 틀렸다**: baseline 의 abortView 는 `InFlightData` 를 건드리지 않는다(단일 항목은 다음 `Save` 가 덮어쓰는 것으로 충분했다). 뷰 체인지 경로에는 clear 지점이 원래 없다.
+
+**노출 시나리오 (W>1, feat 4 현 상태).** 뷰 v 의 in-flight `p, p+1, p+2`. 뷰 체인지가 `p` 만 복구(커밋) → `pruneDelivered(p)` 가 `p` 를 지우고 `p+1, p+2`(뷰 v, prepared 플래그 포함) 가 남음. 새 뷰 v+1 이 `low=p+1` 로 시작. v+1 의 리더가 `p+1` 을 제안하기 **전에** 다시 뷰 체인지가 나면 `lowest()` = 옛 `p+1` 이고, `ValidateInFlight` 는 `seq == lastDecision+1` 만 보므로 **폐기된 뷰 v 의 p+1 이 in-flight(prepared) 로 보고된다.** 전달 기준 안전성은 Lemma 2 로 유지되지만(그 노드가 옛 p+1 을 전달할 길은 없다), D1 의 "폐기 접미사 상태를 버린다" 에는 위배되고, feat 6 이 ViewData 를 다중 in-flight 로 확장하면 폐기된 항목이 그대로 복구 후보 집합에 섞여 들어간다.
+
+**W=1 대조.** 단일 항목은 항상 `≤ low` 다: 복구(전달)된 항목은 `low−1`, 복구되지 못한 항목은 `low` 그 자체(baseline 도 다음 뷰 체인지에서 그 항목을 다시 보고하며, 이는 PBFT 의 prepared 인증서 이월과 같은 정상 의미). 따라서 **D1 의 구현은 "`seq > low` 항목만 삭제" 여야 한다.** `≥ low` 를 지우면 W=1 ViewData 바이트가 달라진다.
+
+**feat 6 요구 사항 (확정).**
+1. `InFlightData.clearAbove(seq)` 추가: `s > seq` 항목 삭제.
+2. 호출 지점: 새 뷰를 시작하는 `Controller.changeView(newView, newSeq, dec)` 의 `startView` 직전에 `c.InFlight.clearAbove(newSeq)`. (`processNewViewMsg`/`commitInFlightProposal` 보다 `changeView` 가 모든 뷰 시작 경로 4곳—새 뷰·sync·재시작·로테이션—을 한 번에 덮는다. 로테이션 경로는 in-flight 가 없어 no-op.)
+3. W=1 에서 no-op 임을 `TestMessageHistogramMatchesBaseline` 과 단위 테스트(`InFlightData` 단일 항목 `≤ low`)로 고정.
+4. feat 5 의 `Restore` 는 WAL 을 "마지막 NewView(또는 결정) 경계 이후" 만 복원해 WAL 쪽 D1 을 지킨다.
+
 ## 열린 문제
 
 1. **[?] `checkLastDecision` 616 (`> mySequence+1` 거절) 과 `validateNewViewMsg` 1051 (`> mySequence+1` 즉시 sync)** — 윈도우에서는 정직 노드 간 체크포인트 차이가 최대 W 이므로, 뒤처진 새 리더는 앞선 정직 노드의 ViewData 를 모두 거절해 quorum 을 못 채운다. ViewData 가 last_decision 하나만 싣는 구조라 중간 decision 을 받아 검증·전달하는 `650-673` 경로를 W 로 확장할 수 없다. 1차안: 리더가 `> my+1` 메시지를 보류 집계해 **f+1 명이 ≥ my+2 를 주장하면** `Synchronizer.Sync()` 후 체크포인트를 다시 읽어 보류 메시지를 재검증. 대안: ViewData 에 `repeated Proposal recent_decisions` 를 추가(크기 비용, 서명 검증 비용 W 배). 주석 `587-589` 의 "sender might be malicious 라 sync 안 함" 원칙과 충돌하므로 결정 필요. 코드만으로는 어느 쪽이 맞는지 판단 불가.

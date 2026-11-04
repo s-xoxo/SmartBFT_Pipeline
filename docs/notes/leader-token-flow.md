@@ -253,6 +253,7 @@ W 개 in-flight 를 지원하려면 `InFlightData` 를 seq 키 정렬 맵(또는
 - **R5 (빈 배치)** proposer 가 토큰을 뽑았으나 배치가 비면 토큰을 되돌린다(현 `469` 와 동일). 단 W 개 토큰이 모두 빈 배치로 즉시 되돌아오면 busy-loop 이므로 `Batcher.NextBatch` 의 타임아웃이 백오프 역할을 하도록 유지(어댑티브 배처가 이 대기를 조절).
 - **R6 (정지)** `Stop`/`StopWithPoolPause`/`close` 후 drain 루프; proposer 고루틴은 `stopChan` 으로 종료.
 - **R7 (세대 검사)** proposer 가 토큰을 뽑은 뒤 `Propose` 직전에 뷰 세대/`Stopped()` 를 확인, 불일치면 토큰을 **버린다**(되돌리지 않음 — 새 뷰의 R1 이 다시 채움).
+- **R8 (발급 순서: 배처 열기 → 뷰 시작 → 토큰 발급)** `changeView` 는 리더이면 `Batcher.Reset()` 을 **`startView` 앞에서** 호출한다. proposer 가 별도 고루틴이 된 뒤에는 R1 이 발급한 토큰을 즉시 꺼내므로, 배처가 아직 닫혀 있으면 R7/`Batcher.Closed()` 로 토큰을 폐기해 새 리더가 영원히 침묵한다(feat 4 PR #4 에서 `TestHeartbeatTimeoutCausesViewChange` 가 뷰 체인지 1회 초과로 실패해 발견; `controller.go changeView`). baseline 의 순서(startView → Reset)는 propose 가 같은 run 고루틴에서 뒤에 실행되었기 때문에 우연히 안전했던 **순서 의존성**이다. 뷰 체인지 경로를 다시 건드리는 feat 6 은 이 순서를 불변식으로 유지해야 한다. W=1 메시지 집합에 영향 없음은 `TestMessageHistogramMatchesBaseline` 이 보장(리뷰어 확인, 2026-11-04).
 
 의사코드:
 ```go
@@ -292,5 +293,6 @@ func (c *Controller) decide(d decision) {
 1. **Batcher Closed 잔류**: `Sync()` (`437-442`) 가 리더에서 `Batcher.Close()` 한 뒤 `run:498-511` 의 `changeView` 가 `396-400` 로 early-return 하면 `Batcher.Reset()` 이 호출되지 않는다. 뷰가 stop 되지 않은 상태의 리더가 `Sync()` 를 호출하는 경로가 실제로 존재하는지(뷰의 `v.Sync.Sync()` 호출 `view.go:214`, `393` 은 직후 `v.stop()` 하므로 `stopped==true` 라 해당 없음) 확인하지 못했다. W 에서는 토큰 W 개가 모두 `propose:464` 에서 소멸하므로 영향이 커진다 — 실험으로 재현 필요.
 2. **`delivered` 대기 정책**: `Decide:915-919` 가 전달 완료까지 뷰 고루틴을 막는 것이 뷰 상태기계 직렬화의 핵심이다. 파이프라인에서 이를 제거하면 뷰가 k+1 처리 중 k 전달이 실패/재구성(reconfig)될 때의 처리(`518-521` `c.close()`)와 충돌한다. 어디까지 비동기화할지는 뷰 섹션 담당과 합의 필요.
 3. **복원 in-flight 개수**: `PersistedState.Restore` 와 WAL 절단(`view.go:416` truncateTo=true)이 1개 전제이므로 R1 의 `restoredInFlight` 는 당장 `{0,1}`. W 개 복원을 지원할지(WAL 포맷 변경) 아니면 재시작 시 파이프라인을 1로 축소(단순)할지 결정 필요.
+   → **결정 (2026-11-04, feat 5)**: W 개 복원 지원. 불변식 I1 `len(token) + inflight + restored == W` 그대로, `startView` 의 `W − restored` 발급은 이미 이를 가정하므로 `Restore` 가 복원한 개수를 정확히 돌려주면 끝. feat 4 는 W>1 + WAL in-flight 재시작을 `Consensus.Start` error 로 거부해 두었고 feat 5 가 이를 제거한다. 상세: [decisions-2026-11-04.md](decisions-2026-11-04.md).
 4. **abort 경로 결정 순서**: `go c.enqueueDecision(d)` (`911`) 가 두 건 이상 동시에 발생할 수 있는 조건을 코드만으로는 단정하지 못했다(현재는 구조상 1건). W 에서 순서 뒤바뀜이 `MutuallyExclusiveDeliver:989-1000` 에 의해 조용한 건너뜀으로 이어지므로 테스트로 고정해야 한다.
 5. `PipelineDepthMax` 와 `AdaptiveBatch` 플래그를 `pkg/types/config.go` `Configuration` 에 두고 `Validate` (`115`~) 에 `PipelineDepthMax >= 1` 검사 추가 — 다른 섹션(config) 과 중복 가능, 조정 필요.
