@@ -1,0 +1,5 @@
+w,rtt_ms,n,k,batch,duration_s,decisions,requests,tps,decisions_per_s,req_per_decision,lat_mean_ms,lat_p50_ms,lat_p99_ms,lat_max_ms,deliver_mean_us,max_in_flight,view_changes,syncs,warnings,dropped,follower_lag,note
+1,100,4,1024,50,15.00,95,4750,316.62,6.33,50.00,3206.59,3144.52,3303.02,3304.25,133.37,1.00,0,0,0,0,0,
+2,100,4,1024,50,15.00,190,9500,633.32,12.67,50.00,1609.86,1576.13,1737.00,1739.03,101.34,2.00,0,0,0,0,0,
+4,100,4,1024,50,15.00,376,18800,1253.24,25.06,50.00,809.25,790.39,954.38,964.94,92.64,4.00,0,0,12,0,0,"warnings: 12 (first: ""Got pre-prepare for sequence 301 but we're in sequence 305"");"
+8,100,4,1024,50,15.00,752,37600,2506.31,50.13,50.00,407.92,469.79,488.19,491.50,71.19,8.00,0,0,6,0,0,"warnings: 6 (first: ""Got pre-prepare for sequence 297 but we're in sequence 299"");"

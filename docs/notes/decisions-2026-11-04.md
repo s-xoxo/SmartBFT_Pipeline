@@ -34,4 +34,17 @@ feat 4 (`feat/pipeline-window`, PR #4, merge `323db6b2`) 병합 보고에 대한
 ## 남은 사항
 
 - **원격 브랜치**: 병합된 `feat/` 브랜치는 보존, merge commit 이 기준 — [branch-policy.md](../branch-policy.md) §4 에 추가.
-- **1차 벤치 (feat 5·6 착수 전)**: `bench/lib` 로 N=4, W ∈ {1,2,4,8}, 모사 RTT ∈ {0,50,100} ms 를 짧게 돌려 "W 를 키우면 TPS 가 오르는가" 추세만 확인. 오르지 않으면 `Controller.Decide` 블로킹(열린 질문 ③)을 먼저 보며, 그 결과가 feat 6 설계에도 영향. 결과: `results/2026-11-04-first-trend/`.
+- **1차 벤치 (feat 5·6 착수 전)**: `bench/lib` 로 N=4, W ∈ {1,2,4,8}, 모사 RTT ∈ {0,50,100} ms 를 짧게 돌려 "W 를 키우면 TPS 가 오르는가" 추세만 확인. 오르지 않으면 `Controller.Decide` 블로킹(열린 질문 ③)을 먼저 보며, 그 결과가 feat 6 설계에도 영향. 결과: [results/2026-11-04-first-trend/](../../results/2026-11-04-first-trend/README.md).
+
+  **1차 벤치 결과 (2026-11-04, N=4, K=256 closed-loop, 배치 50, 15 s/셀, 뷰 체인지 0):**
+
+  | RTT | W=1 | W=2 | W=4 | W=8 |
+  |---|---|---|---|---|
+  | 50 ms | 613 TPS / 407 ms | 1,213 / 242 | 2,425 / 89 | 3,077 / 81 |
+  | 100 ms | 317 / 783 | 633 / 467 | 1,253 / 160 | 1,573 / 156 |
+  | 100 ms, K=1024 | 317 | 633 | 1,253 | **2,506 (= 8×)** |
+
+  - **W 를 키우면 TPS 가 오른다**: RTT 50/100 에서 W 당 거의 선형(2배씩). W=4→8 의 꺾임은 K=256 이 배치 8개를 못 채운 부하 상한이며 K=1024 에서 사라짐. 다음 실험은 K ≥ 2·W·batch, W=16 까지.
+  - **열린 질문 ③ (Decide 블로킹)**: 결정당 Deliver ≈ 13 µs(RTT 0) / ≈ 100 µs(RTT 50/100) 로 결정 주기의 0.1 % 수준 → **병목 아님**, feat 6 설계에 제약 없음. 실제 앱(fsync·블록 검증)을 모사한 Deliver 지연 셀은 다음 실험에 추가.
+  - **RTT 0 은 무효**: 단일 머신 CPU 경합으로 팔로워가 창 밖 commit 을 보고 `Sync()` 를 반복(W=1 에서도 83회). 노드별 프로세스/GOMAXPROCS 분리 후 재측정.
+  - **관찰 (후속 후보)**: W>1 에서 리더의 6 s 재전송이 이미 전달한 팔로워에 `Got pre-prepare for sequence N but we're in sequence N+k` Warn 을 남김(셀당 6–12). 손실·뷰 체인지 없음. prev 링의 중복 pre-prepare 로그 레벨 분기(W>1) 또는 gap-triggered 재전송과 함께 처리.

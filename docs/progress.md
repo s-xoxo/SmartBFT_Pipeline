@@ -26,4 +26,6 @@ PR 본문 사본: `docs/pr/`. 게이트 결과는 각 PR 본문과 코멘트에 
 
 - 3 `feat/adaptive-batch`, 4 `feat/pipeline-window` — 상세 설계 문서 작성 완료 (`docs/notes/design-adaptive-batch.md`, `docs/notes/design-pipeline-window.md`, 2026-11-02). 리뷰어 결정 반영 완료 (`docs/notes/decisions-2026-11-02.md`). feat 3 병합 완료 (2026-11-02). feat 4 병합 완료 (2026-11-03, #4).
 - 다음: 5 `feat/state-wal-window` (WAL 다중 in-flight 복원, W>1 재시작 거부 해제), 6 `feat/viewchange-multi-inflight` (ViewData 다중 in-flight, D1). 7 `feat/adaptive-depth` 는 feat 4 벤치 결과 뒤에 설계.
+- 2026-11-04 병합 후 리뷰 반영 (`docs/notes/decisions-2026-11-04.md`): R8 기록, D1 코드 확인(InFlightData 는 뷰 체인지 경로에서 미삭제 → feat 6 에 `clearAbove(low)`), feat 5 결정(슬롯별 WAL 레코드 + 경계 이후 전부 복원, truncate = low 슬롯 커밋 시, 복원 토큰 `W − restored`, 병합 기준 = 다중 in-flight 재시작 복원 테스트). 순서 feat 5 → 6 고정.
+- 2026-11-04 1차 벤치 (`bench/`, `results/2026-11-04-first-trend/`): RTT 50/100 ms 에서 TPS 가 W 에 선형(W=8, K=1024 에서 8×). Deliver 소요 ≈ 0.1 % → Decide 블로킹은 병목 아님. RTT 0 셀은 CPU 경합으로 무효.
 - feat 4 가 남긴 한계(브랜치 5/6/8 범위): W>1 in-flight 재시작은 error, 뷰 체인지는 최저 in-flight 1건만 복구, config barrier 미구현. 재전송 틱 = 하트비트 주기(6 s)로 netem 손실 실험에서 p99 에 드러날 수 있음 — gap-triggered 재전송은 후속 후보.

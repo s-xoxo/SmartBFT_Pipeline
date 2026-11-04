@@ -1,0 +1,13 @@
+w,rtt_ms,n,k,batch,duration_s,decisions,requests,tps,decisions_per_s,req_per_decision,lat_mean_ms,lat_p50_ms,lat_p99_ms,lat_max_ms,deliver_mean_us,max_in_flight,view_changes,syncs,warnings,dropped,follower_lag,note
+1,0,4,256,50,15.00,54638,2731900,182102.70,3642.05,50.00,1.35,1.25,3.31,135.90,12.97,1.00,0,83,83,0,0,"warnings: 83 (first: ""Seen 2 votes for digest da8ae00bad1a7ae1f8b27fd81a0f4598fa2c2b927fbfd37079393781b78ba6b2 in view 0, sequence 21688 but I am in view 0 and seq 21686"");"
+2,0,4,256,50,15.00,64726,3236300,215724.00,4314.48,50.00,1.14,1.05,2.69,146.24,12.85,2.00,0,4773,4773,0,52110,"warnings: 4773 (first: ""Seen 2 votes for digest 52815307ec6c73df88a602986d424796d133183077b7d190d4bfd1faa13f8d31 in view 0, sequence 7100 but I am in view 0 and seq 7097"");"
+4,0,4,256,50,15.00,25727,1286350,85744.89,1714.90,50.00,2.80,0.99,2.91,8739.50,12.51,4.00,0,407,407,0,10696,"warnings: 407 (first: ""Seen 2 votes for digest 65e314ec5fcbb8a246d7a7758795357b025d8179840400edd99a5f24fa939448 in view 0, sequence 13468 but I am in view 0 and seq 13462"");"
+8,0,4,256,50,15.00,17659,882950,58855.32,1177.11,50.00,1.14,1.05,2.87,41.27,13.13,6.00,0,38,38,0,0,"warnings: 38 (first: ""Seen 2 votes for digest 3402d69f0c4f51897a829483744844f0f2d429aabe97af552b174619f59f277c in view 0, sequence 8203 but I am in view 0 and seq 8194"");"
+1,50,4,256,50,15.00,184,9200,613.32,12.27,50.00,416.31,407.36,493.38,498.62,114.66,1.00,0,0,0,0,0,
+2,50,4,256,50,15.00,364,18200,1213.17,24.26,50.00,210.33,242.16,255.63,258.61,97.62,2.00,0,0,6,0,0,"warnings: 6 (first: ""Got pre-prepare for sequence 291 but we're in sequence 293"");"
+4,50,4,256,50,15.00,728,36400,2424.64,48.49,50.00,105.05,89.01,166.39,174.25,76.00,4.00,0,0,9,0,0,"warnings: 9 (first: ""Got pre-prepare for sequence 582 but we're in sequence 585"");"
+8,50,4,256,50,15.00,1010,46159,3076.84,67.32,45.70,82.15,80.84,131.94,146.10,61.22,6.00,0,0,9,0,0,"warnings: 9 (first: ""Got pre-prepare for sequence 415 but we're in sequence 418"");"
+1,100,4,256,50,15.00,95,4750,316.63,6.33,50.00,801.76,783.15,942.90,960.49,127.76,1.00,0,0,0,0,0,
+2,100,4,256,50,15.00,190,9500,633.25,12.66,50.00,402.86,466.82,515.17,516.21,91.53,2.00,0,0,0,0,0,
+4,100,4,256,50,15.00,376,18800,1253.16,25.06,50.00,202.57,159.93,320.53,324.39,76.81,4.00,0,0,12,0,0,"warnings: 12 (first: ""Got pre-prepare for sequence 301 but we're in sequence 305"");"
+8,100,4,256,50,15.00,550,23604,1573.38,36.66,42.92,162.27,156.25,210.52,216.44,90.97,8.00,0,0,9,0,0,"warnings: 9 (first: ""Got pre-prepare for sequence 214 but we're in sequence 216"");"
