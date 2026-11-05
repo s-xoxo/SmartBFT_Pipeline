@@ -46,7 +46,7 @@
 | 4 `feat/pipeline-window` | [design-pipeline-window.md](design-pipeline-window.md) | 병합 완료 (PR #4, 2026-11-03), §15 병합 후 리뷰 |
 | — `fix/pipeline-resend-noise` | [design-pipeline-window.md](design-pipeline-window.md) §5.4 | 병합 완료 (PR #5, 2026-11-04) — W>1 재전송 범위·로그 레벨 |
 | 5 `feat/state-wal-window` | [design-state-wal-window.md](design-state-wal-window.md) | 병합 완료 (PR #6, 2026-11-04), §12 리뷰 결정 반영 |
-| 6 `feat/viewchange-multi-inflight` | [design-viewchange-multi-inflight.md](design-viewchange-multi-inflight.md) | 설계 리뷰 1차 반영 (2026-11-05, §14–15): S1/S2/S3 대응표, 단일 경계 표, 테스트 4종, 등록 검증, 혼합 배포 거부 — 결정 요청 2건 |
+| 6 `feat/viewchange-multi-inflight` | [design-viewchange-multi-inflight.md](design-viewchange-multi-inflight.md) | 병합 완료 (PR #7, 2026-11-05) — §16 결정 2건, §17 구현 메모(A2 의미, 하네스 경합 2건, 뷰 시작 경쟁) |
 
 결정 기록: [decisions-2026-11-02.md](decisions-2026-11-02.md) — PR 본문에 그대로 붙임.
 

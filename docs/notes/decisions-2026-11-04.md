@@ -102,3 +102,13 @@ feat 4 (`feat/pipeline-window`, PR #4, merge `323db6b2`) 병합 보고에 대한
 리뷰어 수정·요구: (1) 안전성 명제를 S1(결정 보존)/S2(결정 가능 값 보호)/S3(순서·비확정) 세 조건으로 바꾸고 Lemma 1–5 와 `CheckInFlight`/`validateNewViewMsg` 분기 대응표, A2 의 f+1 논증 명시; (2) "NewView 경계 뒤만 읽으니 WAL 자동" 가정 철회 → 단일 경계 원칙(`InFlightData`·View 슬롯·`incMsgs`·`inFlightAttempt`·WAL 재생)을 자료구조별 코드 위치 표로, 뷰 체인지 중 재시작 테스트; (3) 복원 슬롯 → `InFlightData` 등록 경로 + 등록 시 proposal·prepared 증거·view·seq 일치 검증; (4) 혼합 배포 비지원 확정, `validateViewDataMsg` 에서 거부 + Warn; (5) 뒤처진 리더 확인 항목 4개를 테스트로, "반복 리더 변경 후 결정값 유지"(S1 실험 검증) 를 병합 기준에 포함.
 
 반영: [design-viewchange-multi-inflight.md](design-viewchange-multi-inflight.md) §14.1–14.5, §15. 리뷰어 결정 요청 2건: **S2 문구 정정**("정직 노드 하나라도" → "정직 노드 f+1 개 이상 prepared"; A2 를 1 로 낮추면 바이잔틴 1개가 라이브니스를 막아 baseline 설계와 어긋남) 과 **upstream #748 방식의 VC-마지막 복원을 feat 6 에 포함**(뷰 체인지 중 재시작한 노드가 접두사 prepared 증거를 잃는 라이브니스 손실 때문). 발견: VC 레코드의 `next_view` 는 떠나는 뷰 번호(`viewchanger.go:440-446` 가 `currView` 갱신 전에 저장), `StorePrepares(view, seq)` 가 view 인자를 쓰지 않음(등록 검증 5항), 같은 뷰 번호 인스턴스 재시작 뒤 옛 PP 충돌은 baseline 구조(§14.2-e, 후속 fix 후보).
+
+## 8라운드 — feat 6 설계 결정 2건 확정, 구현 착수 (2026-11-05)
+
+- **S2 정정 승인**, 문구는 "커밋 가능성" 기준(설계 문서 §16). S2 는 A2 가 아니라 **B 불성립**(정직 f+1 prepared ⇒ noInFlight ≤ 2f < 2f+1)으로 보장; A2 의 역할은 L(라이브니스); A2·B 모두 아니면 S3 실패·재시도(라이브니스는 다른 2f+1 집합 수집에 의존).
+- **#748 방식 포함 승인**(안전성 사안): VC 마지막이면 그 앞 접두사를 `InFlightData` 에만 복원. view 필터는 VC 레코드 `next_view`(= 떠나는 뷰) 와 같은 view. 테스트 `TestRestoreAfterViewChangeRecordKeepsPrefixInFlight`.
+- 병합 기준: §14 체크리스트 5 + L3 + #748 테스트 + 혼합 배포 거부 테스트. `feat/viewchange-multi-inflight` 착수.
+
+## feat 6 병합 (2026-11-05)
+
+PR #7 → merge `e845b957`. 커밋 6개(a D1·복원, b proto·뷰 체인저, c 통합 테스트, d 재전송 `head` 경쟁 수정, e feat 5 리더 재시작 테스트 교정, f `Batcher.Closed` 경쟁 수정). 게이트: lint 0, mockery 무변경, 단위 -race ok, 통합 222 s, 신규+히스토그램 -race 192 s. 구현 메모는 설계 문서 §17. 리뷰어 보고 사항: (1) A2 의 실제 의미(pre-prepared 집계), (2) 뷰 시작 경쟁(baseline 구조, 재전송만으로 부족 → 테스트는 하트비트 클록 침묵으로 유발; 후속 후보 3개), (3) 데이터 레이스 2건이 PR #4·#5 에 잔존했던 점.

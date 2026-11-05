@@ -258,3 +258,33 @@ if myW > 1 && vd.in_flight_proposal != nil && len(vd.in_flight) == 0 → reject:
 4. §14.5 혼합 배포 거부. (확정)
 5. **§14.1 S2 문구 정정**: "정직 노드 하나라도 prepared" → "정직 노드 f+1 개 이상 prepared(= commit 정족수 가능 최소 조건)". A2 를 1 로 낮추면 바이잔틴 1개가 라이브니스를 막음. (권고: 정정 채택, 원문 S2 는 S1 로 흡수)
 6. §14.2(e) 같은 뷰 번호 인스턴스 재시작 뒤 옛 PP 충돌: baseline 에도 있는 구조, W>1 에서 노출 증가. feat 6 에서는 테스트로 현상만 기록하고 수정은 후속(`fix/`)으로. (권고: 그대로)
+
+## 16. 설계 리뷰 2차 결정 (2026-11-05, 8라운드) — 구현 착수
+
+**결정 1 — S2 정정 승인, 문구는 "커밋 가능성" 기준.**
+
+> **S2 (커밋 가능 값 보호):** 어떤 정직 노드가 seq s 에 대해 값 v 를 커밋했을 가능성이 있으면 — 즉 v 의 prepared 인증서를 가진 정직 노드가 f+1 개 이상이면 — 새 리더는 s 에 v 이외의 값을 제안할 수 없다. 2f+1 개 ViewData 중 그런 정직 노드가 적어도 하나 포함되므로 v 는 보고되고, 또한 B(`noInFlight ≥ 2f+1`)는 성립할 수 없으므로 s 가 비워지지 않는다.
+
+§14.1 표 정정: **S2 는 A2 가 아니라 B 의 불성립으로 보장된다** — 정직 f+1 개가 prepared 면 noInFlight 를 보고할 수 있는 노드는 최대 (3f+1) − (f+1) = 2f 개라 정족수 2f+1 에 못 미친다(핵심 lemma, Lemma 1 의 B 쪽 절반). **A2(`preprepared ≥ f+1`) 의 역할은 L(라이브니스)**: 바이잔틴 f 개가 거짓 in-flight 를 보고해도 새 리더가 그 값으로 재제안을 강제당하지 않는다. **A2 도 B 도 아닌 경우**(prepared 보고 < f+1 이고 noInFlight < 2f+1)는 S3 대로 실패·재시도이며, 이때 라이브니스는 뷰 체인지 재시도가 **다른 2f+1 집합**을 모으는 데 의존한다(같은 집합이 반복되면 진행 불가 — `ViewChangeTimeout` 뒤 다음 리더로 넘어가 집합이 바뀜).
+
+| 명제 | 보장하는 조건·분기 | 역할 |
+|---|---|---|
+| S1 | Lemma 2+3; `last_decision`/`maxLastDecisionSequence` + A 보존 | 안전성 |
+| S2 | **B 불성립** (정직 f+1 prepared ⇒ noInFlight ≤ 2f) — Lemma 1 | 안전성 |
+| A2 ≥ f+1 | 거짓 in-flight 로 재제안 강제 불가 | **L (라이브니스)** |
+| S3 | 연속성·`ckpt+1` 시작; A·B 모두 아님 → `ok=false` 재시도 | 비확정 |
+
+**결정 2 — #748 방식 포함 승인 (안전성 사안).** VC 레코드가 마지막이면 그 앞의 접두사를 **`InFlightData` 에만** 복원(View 슬롯 복원 없음). §14.2(b) 의 "접두사 prepared 증거 손실" 은 그 노드가 f+1 중 하나였으면 재시작 후 prepared 를 보고하지 않아 B 불성립 논증의 정족수 계산이 틀어지는 **S2 위반 가능성**이므로 feat 6 범위. **주의(발견 1):** VC 레코드의 `next_view` 는 떠나는 뷰 번호(`processViewChangeMsg` 가 `currView` 갱신 전 저장)이므로, "VC 앞의 접두사" 필터는 **VC 레코드의 `next_view` 와 같은 view 의 PP/C 레코드**로 잡는다(`+1` 어긋남 금지). 테스트: `TestRestoreAfterViewChangeRecordKeepsPrefixInFlight` — 뷰 v 에서 prepared → VC 기록 → 재시작 → ViewData 가 뷰 v 의 prepared 를 보고.
+
+**나머지 확인:** L1–L4 해석 맞음, L3 병합 기준. `StorePrepares` view 미검사는 등록 검증 5항으로 충분(upstream 이슈 불필요). 발견 3(같은 뷰 번호 재시작 충돌)은 기록·후속 fix; L1–L4 중 재현되면 `fix/` 로.
+
+**병합 기준(확정):** 지난 체크리스트 5개(§14) + L3 + #748 테스트 + 혼합 배포 거부 테스트.
+
+## 17. 구현 메모 (2026-11-05, `feat/viewchange-multi-inflight`)
+
+- **A2 의 정확한 의미 (코드 기준).** `CheckInFlight`(baseline)와 `CheckInFlightPrefix` 는 seq s 의 **후보**를 "prepared 로 보고된 제안" 으로 잡고, 후보 p 의 `preprepared` 는 **p 를 보고한 노드 수(prepared 플래그 무관)**, `noArgument` 는 "p 를 보고했거나 s 에 아무것도 없다고 한 노드 수" 다. 즉 A2 ≥ f+1 은 "f+1 노드가 그 pre-prepare 를 받았다" 이고, 후보 조건이 "최소 1개 prepared 보고" 다. §14.1 표의 A2 설명("prepared ≥ f+1")은 이 의미로 읽어야 한다. S2 의 B 불성립 논증은 영향 없음(prepared 정직 f+1 ⇒ 그들 모두 present&prepared ⇒ noInFlight ≤ 2f). 단위 테스트 `TestCheckInFlightPrefix` 의 "an unprepared report of the same proposal counts as pre-prepared" 케이스가 이를 고정한다. 연속성 검증 때문에 "s 는 B 인데 s+1 은 모두 prepared" 는 메시지로 만들 수 없고, 실제 B 중간 케이스는 "단독 노드만 s 이상을 보고" 로 나타난다.
+- **테스트 하네스 발견.** 송신 측 commit 보류(`holdCommits`, feat 4 테스트에서 사용)는 보류된 commit 이 같은 링크의 후속 prepare 를 막아 W>1 에서 "prepared but not committed" 상태를 비결정적으로 만든다. feat 6 통합 테스트는 **수신 측 commit 유실**(`LoseMessages`, atomic 플래그)로 바꿨다(`viewChangeCluster`).
+- **뒤처진 새 리더 실측 (L1/L2).** W=3, 노드 2 가 2 뒤처진 채 다음 리더: "last decision seq 2 is greater than this node's current sequence 0" 으로 ViewData 거부 → 뷰 1 완성 불가 → `ViewChangeTimeout`(5 s) → 뷰 2(노드 3) 가 노드 1·3·4 로 완성 → 노드 2 는 노드 3 하트비트로 sync("Synchronizer returned with sequence 2") 후 뷰 2 합류. 뷰 3 없음. 설계 §7 1차안 그대로; 비용은 타임아웃 1회.
+- **재합류 타이밍.** 분리됐던 노드를 다시 연결한 직후 제출한 요청은 그 노드가 아직 옛 뷰에 있어 pre-prepare 를 버리고, 하트비트 10틱 뒤에야 sync 된다(baseline 동작). 테스트는 "Starting view with number N" 을 기다린 뒤 제출한다.
+- **편차 5번 (W=1).** VC 레코드가 마지막인 WAL 의 복원이 "없음" 에서 "InFlightData 에만 복원" 으로 바뀜 — upstream #748(main) 과 같은 동작이며 baseline 태그와는 다르다. ViewData 개수 불변, 내용(in-flight 보고)은 재시작 노드에서만 달라진다.
+- **뷰 시작 경쟁 (baseline 구조, 테스트에서 실측).** 새 리더는 `ViewChanged` 직후 첫 제안을 보내고, 팔로워는 NewView 처리 → `ViewChanged` → `changeView` → `startView` 로 새 View 를 설치한다. 리더의 첫 pre-prepare(및 prepare)가 팔로워의 설치보다 먼저 도착하면 `Controller.ProcessMessages`(`controller.go:329`)가 그것을 **옛 View 인스턴스**에 넘겨 뷰 불일치로 버린다(미래 뷰 메시지 버퍼 없음). 노드 4개가 살아 있으면 한 노드의 유실은 정족수에 영향이 없지만, 뷰 체인지 테스트처럼 리더가 빠져 3개만 남으면 그 한 건으로 새 뷰의 첫 seq 가 멈추고 2 s 뒤 재불만 → 연쇄 뷰 체인지가 난다(전체 스위트 3차 실행 `TestRepeatedLeaderChangesKeepDecisions`). W>1 에서는 PR #5 의 "prepare 정족수 미달 슬롯 재전송" 이 정확히 이 간극을 메우며, 주기가 하트비트 주기(기본 6 s)라 2 s 불만 타임아웃보다 길다. 재전송은 pre-prepare 만 복구하고 함께 버려진 리더의 prepare 는 복구하지 않으므로, 리더가 분리되어 3 노드만 남으면 그 팔로워의 prepare 없이는 정족수(3)를 못 채운다 — 재전송만으로는 부족함을 실측. 테스트는 **리더를 분리하지 않고 하트비트 클록을 침묵**시켜(`App.heartbeatTime` 주입, 500 ms 틱, `stopHeartbeats`) 뷰 체인지를 유발한다: 옛 리더가 뷰 체인지에 참여해 4 노드가 살아 있으므로 한 노드의 유실이 정족수를 막지 않는다. **후속 후보**: (i) 재전송 주기를 하트비트와 분리한 설정, (ii) 컨트롤러가 `currViewNumber+1` 의 메시지를 짧게 보류, (iii) 새 리더가 `ViewChanged` 뒤 첫 제안을 팔로워 설치 확인(하트비트 응답) 뒤로 미루기. baseline(W=1)에도 같은 경쟁이 있으나 재전송이 없어 재불만으로만 회복된다 — upstream 보고 후보(재현 테스트 필요).
