@@ -112,3 +112,7 @@ feat 4 (`feat/pipeline-window`, PR #4, merge `323db6b2`) 병합 보고에 대한
 ## feat 6 병합 (2026-11-05)
 
 PR #7 → merge `e845b957`. 커밋 6개(a D1·복원, b proto·뷰 체인저, c 통합 테스트, d 재전송 `head` 경쟁 수정, e feat 5 리더 재시작 테스트 교정, f `Batcher.Closed` 경쟁 수정). 게이트: lint 0, mockery 무변경, 단위 -race ok, 통합 222 s, 신규+히스토그램 -race 192 s. 구현 메모는 설계 문서 §17. 리뷰어 보고 사항: (1) A2 의 실제 의미(pre-prepared 집계), (2) 뷰 시작 경쟁(baseline 구조, 재전송만으로 부족 → 테스트는 하트비트 클록 침묵으로 유발; 후속 후보 3개), (3) 데이터 레이스 2건이 PR #4·#5 에 잔존했던 점.
+
+## 9라운드 — feat 6 병합 확인, 발견 3건 판정, 다음 순서 (2026-11-05)
+
+(a) A2 의 f+1 이 "실제로 제안된 값" 을 보장하는 연결 문장 추가(설계 §18). (b) 뷰 시작 경쟁은 논문의 리더 크래시 실험에 직접 나타나므로 feat 7 전에 `fix/view-start-race`(리더 재전송에 자기 prepare 포함). (c) 모든 PR 게이트에 통합 스위트 -race 1회 추가(branch-policy §4). 다음 순서: fix → 2차 벤치(프로세스 분리, p50/p99, W∈{1,2,4,8}×RTT∈{0,50,100,200}, 리더 크래시 복구 1셀) → feat 7 config-barrier → 8 api-prev-proposal → 9 fabric verifier → Fabric+netem+Caliper 1차 → adaptive-batch 조정 → 10 adaptive-depth(목표 함수는 p99 vs W 곡선으로 결정). branch-policy §3 재번호.
