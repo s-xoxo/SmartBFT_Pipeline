@@ -13,6 +13,7 @@ SmartBFT 포크 main 에 들어간 변경과 그 근거 PR. 논문 구현 장에
 | 2026-11-04 | — | fix/pipeline-resend-noise | [#5](https://github.com/s-xoxo/SmartBFT/pull/5) | db03681c | W>1 전용: pre-prepare 재전송 대상을 "prepare 정족수 미달 슬롯" 으로 축소, prev 링의 중복 pre-prepare 로그 Debug(W=1 Warn 유지). 1차 벤치의 Warn 소음 제거. 전체 스위트 155s | `PipelineDepthMax` (>1 에서만) |
 | 2026-11-04 | 5 | feat/state-wal-window | [#6](https://github.com/s-xoxo/SmartBFT/pull/6) | aab360af | WAL 다중 in-flight 복원: `Restore` 를 seq 별 fold 로 재작성(NewView/ViewChange 경계, 체크포인트 필터, `C+W` 상한 error, 뷰 불일치 Warn), truncateTo = `seq == low`, View 다중 슬롯 복원 핸드오프, `Proposer.RestoredCount` → 토큰 `W − m`, W>1 재시작 거부 제거, `wal_records_since_boundary`. W=1 편차 4번(stale PP 복원 안 함, baseline 결함) + upstream 테스트 1개 `RestartSync(false)` 조정. 전체 스위트 155s | `PipelineDepthMax` |
 | 2026-11-05 | 6 | feat/viewchange-multi-inflight | [#7](https://github.com/s-xoxo/SmartBFT/pull/7) | e845b957 | 뷰 체인지 다중 in-flight 복구: `ViewData.in_flight`(필드 6, 4/5 유지), seq 별 A1/A2/B 접두사 판정(`CheckInFlightPrefix`), 접두사 커밋 반복, D1 `clearAbove(newProposalSequence)`, VC-마지막 WAL 복원(InFlightData 만, upstream #748), 복원 등록 검증 5항, 혼합 배포 거부. 수정 2건(재전송 `head` 경쟁, `Batcher.Closed` 경쟁) + 테스트 하네스 교정. 통합 테스트 5개(S1 반복 리더 교체, 뒤처진 리더 L1/L2, 재시작 접합 2종). 전체 스위트 222s | `PipelineDepthMax` |
+| 2026-11-05 | — | fix/view-start-race | [#8](https://github.com/s-xoxo/SmartBFT/pull/8) | 18fad70c | 리더 재전송에 자기 prepare 포함(뷰 시작 시 첫 pre-prepare·prepare 유실 → 리더 분리 3-노드에서 연쇄 뷰 체인지 방지). `TestMultiInFlightThenLeaderDisconnect`. 통합 231s, 통합 -race 230s(신규 게이트) | `PipelineDepthMax` (>1 에서만) |
 
 PR 본문 사본: `docs/pr/`. 게이트 결과는 각 PR 본문과 코멘트에 기록.
 
@@ -21,6 +22,7 @@ PR 본문 사본: `docs/pr/`. 게이트 결과는 각 PR 본문과 코멘트에 
 병합 후 main db03681c 전체 게이트 (2026-11-04): `go test ./test -count=1` → `ok 151.331s`.
 병합 후 main aab360af 전체 게이트 (2026-11-04): `go test ./test -count=1` → `ok 155.869s`.
 병합 후 main e845b957 전체 게이트 (2026-11-05): `go test ./test -count=1` → `ok 225.997s`.
+병합 후 main 18fad70c 전체 게이트 (2026-11-05): `go test ./test -count=1` → `ok 224.292s`.
 
 ## fabric 포크
 
@@ -37,4 +39,5 @@ PR 본문 사본: `docs/pr/`. 게이트 결과는 각 PR 본문과 코멘트에 
 - 2026-11-04 4라운드 (`docs/notes/decisions-2026-11-04.md` 4라운드): D1 승인 — `clearAbove` 는 `changeView` 인자 `newProposalSequence`(sync 뒤 새 low) 를 쓰고 feat 6 에 `TestInFlightClearedAfterSyncAndViewChange` 추가; 논문 구현 장 단락 초안("암묵적 단일 in-flight 불변식"); 재전송 Warn 은 `fix/pipeline-resend-noise` PR #5 로 병합(브랜치 정책에 `fix/` 추가); feat 5 `Restore` 에 체크포인트 필터(`seq ≤ Checkpoint` 버림). **feat 5 설계 문서 `docs/notes/design-state-wal-window.md` 작성 완료 → 리뷰 대기** (열린 질문 5개). feat 6 은 D1·sync 순서 포함 설계 리뷰 1회 더.
 - 2026-11-04 feat 5 설계 승인(5라운드) → 구현·병합 (PR #6, aab360af). 결정 ①~⑤ 반영(`design-state-wal-window.md` §12). baseline 재현 `results/2026-11-04-baseline-stale-restore/`: stale PP 복원 결함 **재현됨**, 뷰 체인지 없음 → upstream 이슈 [#752](https://github.com/hyperledger/SmartBFT/issues/752) 게시(2026-11-04; upstream main f55a7d12 재현 확인, #739 의도 확인). feat 6 `feat/viewchange-multi-inflight` 설계 문서 작성 완료 (`docs/notes/design-viewchange-multi-inflight.md`: D1 `clearAbove(newProposalSequence)` + sync 순서 테스트, seq 별 A1/A2/B 접두사 규칙·커밋 반복, proto `repeated in_flight = 6`, 뒤처진 리더 테스트, feat 5 접합부 코드 위치, upstream #748 조화 메모) → 2026-11-05 설계 리뷰 1차 반영(§14–15: S1/S2/S3 ↔ Lemma ↔ 코드 분기, 단일 경계 원칙 표 + 뷰 체인지 중 재시작 테스트, 뒤처진 리더 테스트 4종, 복원 슬롯 등록 검증 5항, 혼합 배포 거부) → **결정 요청 2건(S2 문구, #748 포함) 대기**.
 - 2026-11-05 feat 6 구현·병합 (PR #7, e845b957). 설계 §16 결정 2건 반영, 병합 기준 전부 충족(§14 체크리스트 5 + L3 + #748 테스트 + 혼합 배포 거부). 구현 중 발견·수정: `resendPrePrepares` 와 `Batcher.Closed` 의 데이터 레이스(PR #4·#5 잔존), 테스트 하네스 2건(송신 측 commit 보류 경합, 뷰 시작 시 첫 pre-prepare·prepare 유실 — baseline 구조, §17 기록, 후속 후보). 다음: feat 7 `feat/adaptive-depth` 설계(벤치 2차 후), 또는 feat 8 `feat/config-barrier`.
+- 2026-11-05 9라운드: `fix/view-start-race` 병합(PR #8, 18fad70c). 다음: **2차 벤치**(프로세스 분리, p50/p99, W∈{1,2,4,8}×RTT∈{0,50,100,200}, 리더 크래시 복구 1셀) → feat 7 config-barrier → 8 api-prev-proposal → 9 fabric verifier → Fabric+netem+Caliper 1차 → adaptive-batch 조정 → 10 adaptive-depth.
 - feat 4 가 남긴 한계(브랜치 5/6/8 범위; W>1 in-flight 재시작 error 는 feat 5 로 해소; 뷰 체인지 1건 복구는 feat 6 으로 해소): 뷰 체인지는 최저 in-flight 1건만 복구, config barrier 미구현. 재전송 틱 = 하트비트 주기(6 s)로 netem 손실 실험에서 p99 에 드러날 수 있음 — gap-triggered 재전송은 후속 후보.

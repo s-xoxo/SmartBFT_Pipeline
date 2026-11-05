@@ -26,9 +26,9 @@
 ```
 go build ./... && go vet ./...                      ok
 golangci-lint run ./...                              0 issues
-go test -count 1 -race ./internal/... ./pkg/...      GATE_UNIT
-go test ./test/ -count=1                             GATE_FULL
-go test -race ./test/ -count=1                       GATE_FULLRACE   (branch-policy §4 신규 게이트)
+go test -count 1 -race ./internal/... ./pkg/...      ok (bft 9.9s, api, types, wal)
+go test ./test/ -count=1                             ok 230.569s
+go test -race ./test/ -count=1                       ok 229.522s (DATA RACE 없음)   (branch-policy §4 신규 게이트)
 ```
 
 ## 플래그
