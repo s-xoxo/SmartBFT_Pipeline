@@ -165,3 +165,96 @@ d. `test: multi in-flight view change, lagging leader, restart then view change`
 2. §7 연쇄 뷰 체인지 단언 범위: `≤ +2` 허용·기록 vs `== +1` 엄격. (권고: ≤ +2 기록, 측정 항목)
 3. §10 #748 과의 조화: VC 마지막이면 `InFlightData` 만 복원. (권고: 채택, sync/upstream 브랜치에서)
 4. §4 혼합 W 구성 비지원 문서화만. (권고: 그대로)
+
+---
+
+## 14. 설계 리뷰 1차 반영 (2026-11-05, 7라운드) — 체크리스트 순
+
+리뷰어 체크리스트(우선순위순): (1) S1/S2/S3 ↔ Lemma ↔ 코드 분기 대응표 + A2 의 f+1 논증, (2) 단일 경계 원칙 자료구조별 표 + 뷰 체인지 중 재시작 테스트, (3) 뒤처진 새 리더 테스트 4종, (4) feat 5 접합: 복원 슬롯 → `InFlightData` 등록 경로와 일치 검증, (5) proto 필드 6 + 혼합 배포 거부. 아래 §14.1–14.5 가 각각 대응한다. §3–§8 의 본문은 그대로 두고 이 절이 우선한다(충돌 시 이 절).
+
+### 14.1 안전성 명제 S1/S2/S3 과 Lemma·코드 분기 대응
+
+명제(리뷰어 수정안):
+- **S1 (결정 보존)**: 어떤 정직 노드가 Deliver 한 seq s 의 값 v 는 새 뷰에서도 s = v 로 복구된다.
+- **S2 (결정 가능 값 보호)**: 정직 노드 하나라도 s 에 대해 prepared 인증서(2f+1 prepare)를 가진 값 v 가 있으면 새 리더는 s 에 v 이외의 값을 제안할 수 없다. 단 어떤 값도 prepared 가 아니라는 증거(B: `noInFlight ≥ quorum`)가 있으면 s 를 비워도 된다.
+- **S3 (순서·비확정)**: 복구된 접두사는 checkpoint+1 부터 연속이며, A/B 어느 쪽 증거도 없는 slot 은 확정하지 않고 실패(재시도)한다.
+
+| 명제 | 담당 Lemma (viewchange-trace) | 코드 분기 (`aab360af` → feat 6) | 논증 요지 |
+|---|---|---|---|
+| S1 | Lemma 2 (전달의 접두사성) + Lemma 3 (보존 충분성) | `maxLastDecisionSequence`(`viewchanger.go:948`): base = 정족수 ViewData 의 최대 last_decision seq. s ≤ base 인 전달값은 `last_decision` 자체로 운반되고 뒤처진 노드는 `validateNewViewMsg :1040-1100` 의 "ahead by one → ValidateLastDecision → deliver" 또는 sync 로 받는다. s > base 이면서 어떤 정직 노드가 전달했다면 그 노드는 2f+1 commit 을 봤고 그중 ≥ f+1 정직 노드가 WAL 에 PP+C 를 기록해 `prepared=true` 로 보고(`state.go Save → storePrepared`) → A2 성립 → `CheckInFlightPrefix` 가 s 를 그 값으로 보존 → `commitInFlightProposal` 이 같은 값으로 커밋 | 정직 노드가 전달한 값은 (i) base 이하면 last_decision 으로, (ii) base 초과면 A 로 보존된다. 두 정직 노드가 같은 s 에 다른 값을 전달하지 않음(Lemma 2 + Lemma 4) |
+| S2 | Lemma 1 (seq 별 A/B 배타성) + Lemma 4 (폐기 안전성) | **A2** `preprepared ≥ f+1` (`CheckInFlight :924`, 접두사 버전 §5), **A1** `noArgument ≥ quorum` (`:927`), **B** `noInFlightCount ≥ quorum` (`:940`) | 아래 "A2 의 f+1 논증". A 가 성립하는 값은 유일(Lemma 초안 4: 같은 (view, seq) 에 정직 노드는 한 번만 prepare). A 와 B 는 배타적(Lemma 1): prepared 를 든 정직 노드가 f+1 명이면 noInFlight ≤ (2f+1) − (f+1) + f = 2f < quorum. 따라서 B 로 비운 s 에는 정직 prepared 인증서가 f+1 개 미만 — "정직 노드 하나라도" 는 아래 보강 참조 |
+| S3 | Lemma 5 (W=1 환원) 의 전제 + 의사코드의 `return ok=false` | 송신: `getInFlightEntries` 연속성·`ckpt+1` 시작(§4); 수신: `ValidateInFlight` 리스트(첫 항목 `last+1`, 연속, `≤ W`); 판정: `CheckInFlightPrefix` 가 A 도 B 도 아니면 `ok=false`(`:944` 와 동일) → `processNewViewMsg :1193-1196` "did not pass" → 뷰 바꾸지 않고 재시도/타임아웃; 접두사 루프의 `p.seq != ck+1 → return`(§6) | 접두사는 base+1 부터 A 가 연속으로 성립하는 구간, 첫 B 에서 중단. 증거 없는 slot 은 확정하지 않는다 |
+
+**A2 의 f+1 논증 (S2 "정직 노드 하나라도").** 정직 노드 h 가 s 에 대해 값 v 의 prepared 인증서(2f+1 prepare)를 가졌다고 하자. prepare 를 보낸 2f+1 노드 중 ≥ f+1 은 정직하고, 정직 노드는 prepare 를 보내기 전에 PP(s, v) 를 WAL 에 기록해(`view.go processProposal :630 Save(pp)`) `InFlightData` 에 v 를 올린다(`state.go storeProposal`). 새 리더가 모은 정족수(2f+1) ViewData 중 그 f+1 정직 노드와 겹치는 것은 ≥ (f+1) + (2f+1) − (3f+1) = 1 개 … 즉 **최소 1개의 정직 ViewData 가 s 에 v 를 (prepared 플래그 유무와 무관하게) 보고한다.** 그러나 A2 는 `preprepared ≥ f+1` 을 요구하므로 "정직 노드 하나" 만으로는 A 가 성립하지 않을 수 있다. 그때 성립하는 것은 B 인가? B 는 `noInFlight ≥ 2f+1` 인데 noInFlight 에는 "s 에 v 를 들었지만 prepared 가 아닌" 정직 노드도 들어간다. 따라서 **S2 의 "정직 노드 하나라도 prepared 인증서를 가짐" 은 A 를 보장하지 않고, B 도 배제하지 않는다** — 이것은 baseline `CheckInFlight` 의 성질 그대로이며, PBFT 와 같은 근거로 안전하다: *정직 노드가 prepared 인증서를 가졌다는 것만으로는 어떤 정직 노드도 s 를 전달하지 않았을 수 있고(commit 정족수 미달), 그 경우 s 를 다른 값으로 결정해도 전달 기준 안전성(S1)은 깨지지 않는다.* S2 가 실제로 보호해야 하는 것은 "**어떤 정직 노드가 commit 정족수(2f+1 commit)를 모아 전달했을 수 있는 값**" 이고, 그 경우 ≥ f+1 정직 노드가 prepared 로 보고하므로 A2 가 성립한다(위 S1 행). → **S2 의 문구를 "정직 노드 f+1 개 이상이 s 에 대해 prepared 인 값 v 가 있으면(= 어떤 정직 노드가 commit 정족수를 모았을 수 있는 최소 조건) 새 리더는 v 이외의 값을 제안할 수 없다; 그보다 약한 증거(prepared 노드 ≤ f)인 값은 B 로 비울 수 있고 그래도 S1 은 유지된다" 로 정정할 것을 제안한다.** 이 정정이 받아들여지지 않으면 A2 를 `≥ 1` 로 낮춰야 하는데, 그러면 바이잔틴 노드 하나가 임의의 값을 prepared 로 보고해 새 리더의 제안을 막을 수 있어(라이브니스 공격) baseline 의 설계와 어긋난다. 리뷰어 결정 요청(§15 질문 5).
+
+**각 Lemma 가 성립하는지는 구현 뒤 `TestCheckInFlightPrefix` 의 케이스 표(A 유일성, A/B 배타, B 중단, 증거 없음 → ok=false, f+1 바이잔틴 prepared 보고 → A 불성립·B 성립)로 기계적으로 확인한다**; 이 절은 요구 사항이며 성립 판단은 그 테스트와 문서를 함께 보고 한다.
+
+### 14.2 단일 경계 원칙 — 자료구조별 표와 뷰 체인지 중 재시작
+
+**원칙.** 뷰 체인지 뒤 아래 자료구조 모두가 같은 seq 경계 `newProposalSequence`(= 접두사 커밋 뒤 `checkpoint+1`, `viewchanger.go:1228 ViewChanged(currView, mySequence+1)`) 를 따른다: 그 아래는 전달됨, 그 위는 존재하지 않음(폐기), 경계 자체는 "다음에 제안될 seq" 로 비어 있거나 baseline 이월 항목 1개.
+
+| 자료구조 | 소유 | 경계를 따르게 하는 코드 | 상태 |
+|---|---|---|---|
+| `InFlightData.entries` | `Consensus.inFlight`(공유) | `Controller.changeView` 의 `startView` 직전 `clearAbove(newProposalSequence)`(§3, 신규); 그 아래는 `decide → pruneDelivered`(`controller.go:589`) 와 `sync → clearUpTo`(`:797`) 가 지움 | feat 6 추가 |
+| `View.slots`(투표·검증 서명·pre-prepare·proposal) | 옛 View 인스턴스 | `abortView → currView.Abort()`(`controller.go:455-466`, `view.go:1317`) 로 뷰 고루틴 종료 → 인스턴스 폐기; 새 View 는 `setup()` 에서 빈 `slots` 로 시작(`view.go:246`) | 자동 충족 |
+| `View.incMsgs` 큐(미처리 메시지) | 옛 View 인스턴스 | 채널은 인스턴스와 함께 버려짐; `Controller.ProcessMessages`(`controller.go:329`) 는 항상 `c.currView` 로 라우팅하므로 새 뷰는 자기 큐만 본다. 옛 뷰 번호의 메시지는 새 View 의 `processMsg :325` "expected view" Warn 으로 폐기 | 자동 충족 |
+| `verifiedSigs` 채널 | 옛 View 인스턴스 | 송신 고루틴이 `abortChan` 에서 포기 | 자동 충족 |
+| 복구 캐시 `inFlightAttempt`/`inFlightView` | ViewChanger | `commitInFlightProposal :1360-1364` 가 커밋·타임아웃 후 `inFlightView = nil`; `decideInFlight :1396 attempt.viewRef.stop()`. 접두사 루프에서는 반복마다 새 attempt 를 만들고 이전 것을 nil 로 → 루프 종료 시 nil | 유지(루프화만) |
+| 요청 풀 예약 | RequestPool | `startView :393 UnreserveAll()` — 폐기 슬롯의 요청은 예약 해제되어 새 뷰가 재제안 | 자동 충족 (feat 4) |
+| WAL 재생 결과 | PersistedState | `Restore`(feat 5): 마지막 NewView/ViewChange 레코드 **뒤**만 fold → 경계 레코드가 있으면 옛 뷰 슬롯은 복원되지 않음. NV 레코드는 `processNewViewMsg :1207-1216` 에서 접두사 커밋 뒤 `LatestSequence = mySequence` 로 기록되므로 경계 = `newProposalSequence − 1` 과 일치 | **조건부** — 아래 |
+| `ViewSequences`(하트비트·sync 기준 low) | atomic | `NewProposer :400`/`advanceLow` 가 새 뷰의 low 로 발행 | 자동 충족 |
+
+**뷰 체인지 중 재시작 (WAL 경계가 옛 뷰에 있는 경우).** 리뷰어 지적대로 "NewView 경계 뒤만 읽으니 자동" 은 NV 레코드가 기록된 뒤에만 성립한다. 경우별:
+
+| 재시작 시점 | WAL 꼬리 | feat 5 `Restore` 결과 | 판정 |
+|---|---|---|---|
+| (a) 뷰 v 진행 중, 뷰 체인지 시작 전 | `[PP(p) v, PP(p+1) v, C(p) v]` | p(PREPARED), p+1(PROPOSED) 복원 → View 슬롯·`InFlightData` | 정상 (in-flight 그대로) |
+| (b) **ViewChange 전송 후·NewView 수신 전** — VC 레코드 있음 | `[…, VC(next_view = v)]` (※ `processViewChangeMsg :440-446` 은 `v.currView` 를 갱신하기 **전**에 저장하므로 레코드의 `next_view` 는 떠나는 뷰 v) | 마지막이 VC → **복원 없음**(baseline 동일, §5-1). `InFlightData` 비어 있음 → 재시작 뒤 `viewChanger.Restore` 채널로 재전송되는 ViewData 는 in-flight 없음 | 접미사를 보고하지 않음(안전, 요구 충족). 단 **접두사(prepared p)도 잃어** A2 를 채우는 정직 노드가 하나 줄어든다 — 라이브니스 비용. upstream #748 이 이 경우를 "VC 앞 PP(+C) 를 `InFlightData` 에만 복원" 으로 고침 → §10/§15-3 |
+| (c) 뷰 체인지 시작 전에 재시작했고 재시작 직후 뷰 체인지 참여 (VC 레코드 없음) | (a) 와 같음 | p, p+1 모두 `InFlightData` 에 → ViewData 에 둘 다 보고 | **올바른 입력**: ViewData 의 in-flight 는 A/B 판정의 입력이고, 접미사는 판정 결과(B) 이후에 생기는 개념. D1 은 판정 뒤 `changeView` 의 `clearAbove` 가 적용 |
+| (d) NewView 수신·NV 레코드 기록 후, 새 뷰 첫 PP 처리 전 | `[PP(p) v, PP(p+1) v, C(p) v, NV(v+1, latest = p)]` | 마지막이 NV → 복원 없음; `LoadNewViewIfApplicable` 이 (v+1, p) 로 시작 | 옛 접미사 p+1 보고 안 함 (충족) |
+| (e) 같은 뷰 번호로 뷰 인스턴스 재시작(sync 무결과 경로 `controller.go:574`) 뒤 재시작 | NV 없음, 옛 인스턴스의 `PP(p+1) v` 남음 | 뷰 번호가 같아 "다른 뷰 레코드 Warn" 규칙에 **걸리지 않음** → p+1(옛 인스턴스) 복원 | **주의**: 새 인스턴스가 (v, p+1) 에 다른 배치를 제안하면 복원 노드는 옛 PP 를 들고 있어 충돌. baseline 도 W=1 에서 같은 구조(sync 무결과 → 같은 뷰·같은 seq 재제안 → "dropping message")를 가짐. W>1 에서 노출이 늘어나므로 **feat 6 테스트 항목으로 기록**, 수정은 별도(§15-6) |
+
+**테스트 `TestRestartDuringViewChangeReportsNoSuffix`** (`test/`, W=3): 뷰 0 에서 p..p+2 in-flight(commit 보류) → 리더 정지로 뷰 체인지 → 노드 3 이 ViewChange 를 보낸 직후(로그 "sent view data msg" 전후 두 변형) 재시작 → (i) 노드 3 의 `Restore` 로그가 "Restored proposal" 을 내지 않음(경우 b) 또는 복원했더라도 뷰 체인지 완료 후 `InFlightData` 가 `> newProposalSequence` 를 갖지 않음(경우 c, 컨트롤러 훅/메트릭으로 확인) → (ii) 모든 노드 동일 레코드. 경우 (e) 는 `TestSameViewRestartKeepsOldPrePrepare` 로 현상을 기록만(실패 조건 없음, 로그 카운트).
+
+### 14.3 뒤처진 새 리더 — 테스트 4종 (병합 기준)
+
+| # | 테스트 | 시나리오 (W=3, N=4) | 단언 |
+|---|---|---|---|
+| L1 | `TestLaggingLeaderSyncsThenViewChanges` | 다음 리더(노드 2)가 commit 을 잃어 체크포인트 2 이상 뒤처짐 → 뷰 체인지 | 노드 2 로그 "last decision seq … greater than this node's current sequence" → `Synchronizer returned with sequence` → 뷰 체인지 완료; 전 노드 동일 레코드 |
+| L2 | `TestLaggingLeaderViewChangeTimeoutOverlap` | L1 + `ViewChangeTimeout` 수 초로 단축, sync 지연(`DelaySync`) 을 타임아웃 근처로 | 최종 뷰 ≤ 시작+2, 안전성(동일 레코드) 유지, 실제 뷰 증가 횟수를 로그로 기록(측정 항목) |
+| L3 | `TestRepeatedLeaderChangesKeepDecisions` (**S1 실험 검증**) | 3개 in-flight 상태에서 리더 정지 → 뷰 1 → 접두사 커밋 중/직후 다시 리더 정지 → 뷰 2 → 뷰 3 까지 반복 | 뷰마다 Deliver 된 (seq, 값) 이 모든 노드에서 동일하고 한 번 전달된 seq 의 값이 뒤 뷰에서 바뀌지 않음(각 노드 `Delivered` 기록 비교); 접두사 커밋 로그 횟수 기록 |
+| L4 | `TestLaggingLeaderWithRestoredInFlight` | 노드 2 가 2개 복원(feat 5) 직후 뒤처진 채 새 리더가 됨 | 복원 슬롯이 자기 ViewData 에 실리고(§14.4), sync 뒤 뷰 체인지가 완료되며 복원 값이 전달값과 일치 |
+
+(리뷰어의 "네 가지 확인 항목" 을 위 4종으로 해석했다 — 다르면 지적 요청.)
+
+### 14.4 feat 5 접합 — 복원 슬롯의 `InFlightData` 등록 경로와 일치 검증
+
+등록 경로(`aab360af`): `Restore`(`state.go:243-251`) → 복원 항목마다 `ps.storeProposal(r.proposed)` → `InFlightData.StoreProposalAt(pp.seq, proposal)`(`state.go:58-69`, `util.go:267`) ; commit 레코드가 있으면 `ps.storePrepared(r.commit)` → `InFlightData.StorePrepares(commit.view, commit.seq)`(`state.go:70-73`, `util.go:282`). 같은 `InFlightData` 를 ViewChanger 가 `prepareViewDataMsg :469` 에서 읽는다. 시점 보장은 §8(`ControllerStartedWG`).
+
+**등록 시 검증 (feat 6 요구 사항, 신규):** `foldSlots`/`filterInFlight`(feat 5) 에 다음을 추가하고 불일치는 **Warn 후 해당 seq 를 PROPOSED 로 강등(commit 증거 무시)**, proposal 자체가 깨졌으면 그 seq 이후를 버린다:
+1. `commit.view == pp.view`, `commit.seq == pp.seq` (현재 seq 만 키로 맞춤; view 는 미검증).
+2. `commit.digest == proposal.Digest()` — 내 commit 이 그 제안에 대한 것인지(prepared 증거의 대상 일치).
+3. `commit.signature.signer == SelfID` — 내가 쓴 commit 레코드인지.
+4. `pp.view == 복원 집합의 view`(feat 5 의 뷰 불일치 규칙 그대로), `pp.proposal.metadata.{view_id, latest_sequence} == (pp.view, pp.seq)`.
+5. `InFlightData.StorePrepares(view, seq)` 가 `view` 인자를 실제로 검사: 항목의 제안 metadata view 와 다르면 Warn 후 무시(`util.go:282-297` 현재는 view 를 쓰지 않음).
+
+테스트: `TestRestoreRejectsMismatchedCommit`(digest 불일치 → PROPOSED 강등 + Warn, view 불일치 → 무시), `TestPipelineRestartThenViewChangeCarriesRestored`(§8).
+
+### 14.5 proto 필드 6 과 혼합 배포 거부 (확정)
+
+혼합 배포(W=1 노드와 W>1 노드 공존)는 **지원하지 않는다**. `Config.Validate` 는 상대 노드 설정을 모르므로 막을 수 없고, `validateViewDataMsg`(`viewchanger.go:534-562`, `ValidateInFlight` 호출 직전) 에서 거부 + Warn:
+```
+myW := depth
+if myW == 1 && len(vd.in_flight) > 0            → reject: "view data carries a pipelined in-flight list but this node runs without a pipeline"
+if myW > 1 && vd.in_flight_proposal != nil && len(vd.in_flight) == 0 → reject: "view data carries a single in-flight proposal without the pipelined list"
+```
+(W>1 노드의 in-flight 없음은 4/5/6 모두 비어 있어 두 조건에 걸리지 않는다.) 같은 검사를 `validateNewViewMsg` 의 ViewData 순회에도 둔다. 논문: "동일 설정 배포 가정" 한 줄. 테스트: `TestViewDataMixedDepthRejected`.
+
+## 15. 열린 질문 (갱신)
+
+1. §6 타임아웃: 1차 측정만. (권고: 그대로)
+2. §14.3 L2 연쇄 뷰 체인지 단언 ≤ +2 기록. (권고: 그대로)
+3. §10/§14.2(b) upstream #748 조화: VC 가 마지막이면 그 앞 경계 이후 접두사를 `InFlightData` 에만 복원(View 비움), view 검사는 `VC.next_view == 레코드 view`(VC 레코드의 `next_view` 가 떠나는 뷰임에 주의). feat 6 에 포함할지 sync/upstream 에서 할지. (권고: **feat 6 에 포함** — (b) 의 라이브니스 손실이 접두사 복구의 A2 정족수에 직접 영향)
+4. §14.5 혼합 배포 거부. (확정)
+5. **§14.1 S2 문구 정정**: "정직 노드 하나라도 prepared" → "정직 노드 f+1 개 이상 prepared(= commit 정족수 가능 최소 조건)". A2 를 1 로 낮추면 바이잔틴 1개가 라이브니스를 막음. (권고: 정정 채택, 원문 S2 는 S1 로 흡수)
+6. §14.2(e) 같은 뷰 번호 인스턴스 재시작 뒤 옛 PP 충돌: baseline 에도 있는 구조, W>1 에서 노출 증가. feat 6 에서는 테스트로 현상만 기록하고 수정은 후속(`fix/`)으로. (권고: 그대로)

@@ -96,3 +96,9 @@ feat 4 (`feat/pipeline-window`, PR #4, merge `323db6b2`) 병합 보고에 대한
 - **#739 의도 확인**: PR 본문·커밋 메시지는 WAL 파일 증가(issue #736) 수정이며 테스트는 "in-flight proposal restart test 를 10회 재시작·파일 수 불변으로 강화" 한 것. `git log -S` 로 테스트 이름이 #739 에서 처음 등장. "sync 후에도 복원" 의도 없음 → `RestartSync(false)` 조정 정당. 이슈 본문에 한 문단으로 기재.
 - **이슈 게시 조건 3개 확인**: (1) upstream main `f55a7d12` 워크트리에 재현 테스트만 넣어 실행 → 동일 재현(포크 하네스 불필요; 테스트는 upstream `test/` 하네스만 사용). (2) 제목은 현상, 체크포인트 필터는 "One possible fix" 로 마지막, 연구 언급 없음. (3) 범위: 안전성 위반 아님, 라이브니스 지연, 영향 노드 1개면 뷰 체인지 없음, f+1 동시 재시작 시 불필요한 뷰 체인지 가능. → **게시: [hyperledger/SmartBFT#752](https://github.com/hyperledger/SmartBFT/issues/752)**.
 - feat 6 설계 문서 항목(재확인분 포함): [design-viewchange-multi-inflight.md](design-viewchange-multi-inflight.md).
+
+## 7라운드 — feat 6 설계 리뷰 1차 (2026-11-05)
+
+리뷰어 수정·요구: (1) 안전성 명제를 S1(결정 보존)/S2(결정 가능 값 보호)/S3(순서·비확정) 세 조건으로 바꾸고 Lemma 1–5 와 `CheckInFlight`/`validateNewViewMsg` 분기 대응표, A2 의 f+1 논증 명시; (2) "NewView 경계 뒤만 읽으니 WAL 자동" 가정 철회 → 단일 경계 원칙(`InFlightData`·View 슬롯·`incMsgs`·`inFlightAttempt`·WAL 재생)을 자료구조별 코드 위치 표로, 뷰 체인지 중 재시작 테스트; (3) 복원 슬롯 → `InFlightData` 등록 경로 + 등록 시 proposal·prepared 증거·view·seq 일치 검증; (4) 혼합 배포 비지원 확정, `validateViewDataMsg` 에서 거부 + Warn; (5) 뒤처진 리더 확인 항목 4개를 테스트로, "반복 리더 변경 후 결정값 유지"(S1 실험 검증) 를 병합 기준에 포함.
+
+반영: [design-viewchange-multi-inflight.md](design-viewchange-multi-inflight.md) §14.1–14.5, §15. 리뷰어 결정 요청 2건: **S2 문구 정정**("정직 노드 하나라도" → "정직 노드 f+1 개 이상 prepared"; A2 를 1 로 낮추면 바이잔틴 1개가 라이브니스를 막아 baseline 설계와 어긋남) 과 **upstream #748 방식의 VC-마지막 복원을 feat 6 에 포함**(뷰 체인지 중 재시작한 노드가 접두사 prepared 증거를 잃는 라이브니스 손실 때문). 발견: VC 레코드의 `next_view` 는 떠나는 뷰 번호(`viewchanger.go:440-446` 가 `currView` 갱신 전에 저장), `StorePrepares(view, seq)` 가 view 인자를 쓰지 않음(등록 검증 5항), 같은 뷰 번호 인스턴스 재시작 뒤 옛 PP 충돌은 baseline 구조(§14.2-e, 후속 fix 후보).
