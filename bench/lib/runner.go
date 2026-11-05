@@ -128,7 +128,7 @@ func Run(cfg RunConfig) (Result, error) {
 		if res.Decisions > 0 {
 			res.DeliverMean = time.Duration(leader.App.mDeliverNanos.Load() / int64(res.Decisions))
 		}
-		res.MeanLat, res.P50, res.P99, res.MaxLat = stats(leader.App.Latencies())
+		res.MeanLat, res.P50, res.P99, res.MaxLat = Stats(leader.App.Latencies())
 		if res.Decisions == 0 {
 			res.Note = "stall: no decisions during the measurement window"
 		}
@@ -171,7 +171,8 @@ func firstWarning(nodes []*Node) string {
 	return ""
 }
 
-func stats(l []time.Duration) (mean, p50, p99, maxLat time.Duration) {
+// Stats sorts the samples and returns mean, p50, p99 and max (zeros for no samples).
+func Stats(l []time.Duration) (mean, p50, p99, maxLat time.Duration) {
 	if len(l) == 0 {
 		return
 	}

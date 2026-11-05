@@ -116,3 +116,15 @@ PR #7 → merge `e845b957`. 커밋 6개(a D1·복원, b proto·뷰 체인저, c 
 ## 9라운드 — feat 6 병합 확인, 발견 3건 판정, 다음 순서 (2026-11-05)
 
 (a) A2 의 f+1 이 "실제로 제안된 값" 을 보장하는 연결 문장 추가(설계 §18). (b) 뷰 시작 경쟁은 논문의 리더 크래시 실험에 직접 나타나므로 feat 7 전에 `fix/view-start-race`(리더 재전송에 자기 prepare 포함). (c) 모든 PR 게이트에 통합 스위트 -race 1회 추가(branch-policy §4). 다음 순서: fix → 2차 벤치(프로세스 분리, p50/p99, W∈{1,2,4,8}×RTT∈{0,50,100,200}, 리더 크래시 복구 1셀) → feat 7 config-barrier → 8 api-prev-proposal → 9 fabric verifier → Fabric+netem+Caliper 1차 → adaptive-batch 조정 → 10 adaptive-depth(목표 함수는 p99 vs W 곡선으로 결정). branch-policy §3 재번호.
+
+## 2차 벤치 결과와 발견 2건 (2026-11-05) — 리뷰어 결정 요청
+
+결과: [results/2026-11-05-second-bench/](../../results/2026-11-05-second-bench/README.md) (프로세스 분리, GOMAXPROCS=2/노드, K=1024, W∈{1,2,4,8}×RTT∈{0,50,100,200}, 리더 크래시 W=4·W=1 @RTT 50). 하네스: `bench/cmd/node`, `bench/cmd/matrix`, `bench/lib/tcp.go`.
+
+- **정상 셀은 1차와 일치**: W=1 603/313/160 TPS(RTT 50/100/200), W=8@50 4,586(≈7.6×), p99 는 ~1/W 로 감소(RTT 50: 1,746→289 ms; RTT 200: 6,479→1,030 ms, 꺾임 아직 없음). 뷰 체인지 0, 프레임 드롭 0.
+- **발견 A — 팔로워 탈락(fall-out, W>1)**: 팔로워가 리더 low 보다 2 이상 뒤처지면 리더의 새 pre-prepare(seq ≤ 리더 low+W−1)가 팔로워 수용 창 `[low_f, low_f+W]` 밖이라 **조용히 버려지고**, f+1 commit 을 보고 sync 로만 회복하는데 그 사이 in-flight 를 또 놓쳐 파도마다 반복. 팔로워 2개가 빠지면 리더(commit 3 필요)가 다음 재전송(6 s)까지 멈춘다. GOMAXPROCS=2 지터에서 확률적으로 발생(※ 셀: RTT 0 의 W>1 전부, RTT 50/100/200 일부; W=4@50 동일 조건 2회가 2,173 vs 550 TPS). 1차 벤치(GOMAXPROCS=10, 인메모리)에서는 안 보임. **설계 문제**: 창이 팔로워 자신의 low 기준이라 f 개 느린 팔로워는 리더 파이프라인에서 밀려난다(W=1 은 리더가 1 이상 앞설 수 없어 노출 안 됨). 후보: (i) 수용 창을 `[low, low+2W]`(또는 리더 하트비트의 low 기준)로 확장, (ii) 간극 발견 시 팔로워가 pre-prepare 요청(새 메시지), (iii) 리더가 하트비트 low 로 느린 팔로워를 감지해 제안 속도 조절. **권고: (i) — 수용만 넓히고 처리 창 `[low, low+W)` 은 유지(D2 불변), W=1 은 `[S, S+1]` 그대로이므로 바이트 동일.** `fix/follower-window` 로 feat 7 전에.
+- **발견 B — W=1 리더 크래시 복구 실패(뷰 시작 경쟁, baseline 구조)**: 리더 SIGKILL 뒤 W=4 는 1회 뷰 체인지, 2.68 s 에 첫 전달(PR #8 재전송 500 ms 덕). **W=1 은 뷰 1→2→3→4 가 2.6 s 마다 같은 경쟁으로 실패**(새 리더가 NewView 처리 직후 0.3 ms 안에 PP·prepare 를 보내고, 팔로워는 NewView → 뷰 설치 전에 PP 가 도착해 버림; W=1 은 재전송 없음) → `ViewChangeTimeout` 20 s 뒤 뷰 5 에서 30.6 s 만에 복구. **baseline 결함**(N=4 에서 리더가 죽어 3 노드만 남으면 재현) → upstream 이슈 후보 #2(재현은 본 하네스 `cmd/matrix -mode crash`). 논문: "원본은 리더 크래시 후 첫 제안이 뷰 설치와 경쟁해 복구가 ViewChangeTimeout 에 좌우되고, 제안 기법의 재전송이 이를 제거" 로 서술 가능. W=1 바이트 동일 원칙상 포크는 W=1 재전송을 켜지 않음.
+- RTT 0 열: W=1 은 유효(sync 는 있으나 리더 무중단, 131,818 TPS), W>1 은 발견 A 로 무효.
+- 1차 전체 실행은 Mac 유휴 슬립으로 폐기(`caffeinate -is` 로 재실행; 노드가 `clock_jump_ms` 기록).
+
+**결정 요청:** (1) 발견 A 의 (i) 를 `fix/follower-window` 로 feat 7 전에 넣을지, (2) 발견 B 의 upstream 이슈 게시, (3) adaptive-depth 목표 함수는 발견 A 수정 후 ※ 없는 매트릭스를 다시 뽑은 뒤 정하는 것이 맞는지.

@@ -86,23 +86,67 @@ func decodeBatch(b []byte) ([][]byte, error) {
 // quietLogger implements api.Logger. Debug and Info are dropped, except that view starts are
 // counted; warnings and errors are counted and the first few are printed.
 type quietLogger struct {
-	id         uint64
-	viewStarts atomic.Uint64 // "Starting view with number X" with X > 0
-	warnings   atomic.Uint64
-	printed    atomic.Uint64
-	mu         sync.Mutex
-	first      []string
+	id              uint64
+	viewStarts      atomic.Uint64 // "Starting view with number X" with X > 0
+	inFlightCommits atomic.Uint64 // "In-flight view ... has committed a decision"
+	warnings        atomic.Uint64
+	printed         atomic.Uint64
+	Verbose         bool                            // also print Info lines about views and syncs (process-separated nodes)
+	Debug           bool                            // print every Debug/Info line (huge; for diagnosing a stall)
+	OnViewStart     func(view uint64, at time.Time) // called for "Starting view with number X", X > 0
+	mu              sync.Mutex
+	first           []string
 }
 
-const viewStartPrefix = "Starting view with number"
+const (
+	viewStartPrefix      = "Starting view with number"
+	inFlightCommitPrefix = "In-flight view %d with latest sequence %d has committed"
+)
 
-func (l *quietLogger) Debugf(string, ...any) {}
+func (l *quietLogger) Debugf(template string, args ...any) {
+	if l.Debug {
+		log.Printf("bench: node %d DEBUG: "+template, append([]any{l.id}, args...)...)
+	}
+}
 func (l *quietLogger) Infof(template string, args ...any) {
+	if l.Debug {
+		log.Printf("bench: node %d INFO: "+template, append([]any{l.id}, args...)...)
+	}
 	if strings.HasPrefix(template, viewStartPrefix) && len(args) > 0 {
 		if v, ok := args[0].(uint64); ok && v > 0 {
 			l.viewStarts.Add(1)
+			if l.OnViewStart != nil {
+				l.OnViewStart(v, time.Now())
+			}
 		}
 	}
+	if strings.HasPrefix(template, inFlightCommitPrefix) {
+		l.inFlightCommits.Add(1)
+	}
+	if l.Verbose && (strings.HasPrefix(template, viewStartPrefix) || strings.HasPrefix(template, "In-flight view") ||
+		strings.HasPrefix(template, "Synchronizer returned") || strings.Contains(template, "view change") ||
+		strings.Contains(template, "but our sequence is")) {
+		log.Printf("bench: node %d INFO: "+template, append([]any{l.id}, args...)...)
+	}
+}
+
+// ViewStarts returns the number of "Starting view with number X" lines with X > 0.
+func (l *quietLogger) ViewStarts() uint64 { return l.viewStarts.Load() }
+
+// InFlightCommits returns the number of "In-flight view ... has committed a decision" lines.
+func (l *quietLogger) InFlightCommits() uint64 { return l.inFlightCommits.Load() }
+
+// Warnings returns the number of Warn/Error lines.
+func (l *quietLogger) Warnings() uint64 { return l.warnings.Load() }
+
+// FirstWarning returns the first Warn/Error line, or "".
+func (l *quietLogger) FirstWarning() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.first) == 0 {
+		return ""
+	}
+	return l.first[0]
 }
 func (l *quietLogger) Warnf(template string, args ...any)  { l.warn("WARN", template, args...) }
 func (l *quietLogger) Errorf(template string, args ...any) { l.warn("ERROR", template, args...) }
@@ -117,7 +161,7 @@ func (l *quietLogger) warn(level, template string, args ...any) {
 		l.first = append(l.first, msg)
 	}
 	l.mu.Unlock()
-	if l.printed.Add(1) <= 10 {
+	if l.printed.Add(1) <= 10 || l.Verbose {
 		log.Printf("bench: node %d %s: %s", l.id, level, msg)
 	}
 }
@@ -187,11 +231,52 @@ func (l *Ledger) get(seq uint64) (types.Decision, bool) {
 	return d, ok
 }
 
+// Latest returns the highest sequence in the ledger (0 when empty).
+func (l *Ledger) Latest() uint64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.latest
+}
+
+// After returns up to limit consecutive decisions with sequence > after, in order. When after+1 is
+// no longer kept (the requester is too far behind) only the latest decision is returned, so the
+// requester jumps forward instead of being stuck.
+func (l *Ledger) After(after uint64, limit int) []types.Decision {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.latest <= after {
+		return nil
+	}
+	if _, ok := l.decisions[after+1]; !ok {
+		return []types.Decision{l.decisions[l.latest]}
+	}
+	out := make([]types.Decision, 0, limit)
+	for seq := after + 1; seq <= l.latest && len(out) < limit; seq++ {
+		d, ok := l.decisions[seq]
+		if !ok {
+			break
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// Fetcher fetches the decisions after a sequence from the other nodes; it is set on an App whose
+// peers live in other processes (see cmd/node), in which case Sync pulls from it instead of the
+// local Ledger only. It returns nil when no peer has anything newer.
+type Fetcher interface {
+	Fetch(after uint64) []types.Decision
+}
+
 // App implements Application, Assembler, Signer, Verifier, RequestInspector, MembershipNotifier and
 // Synchronizer for one node. Deliver only parses the batch and updates counters.
 type App struct {
 	id     uint64
 	ledger *Ledger
+	// Remote, when set before Start, is where Sync fetches missing decisions from (other processes).
+	Remote Fetcher
+	// OnDecision, when set before Start, is called once per delivered decision (also for synced ones).
+	OnDecision func(at time.Time, seq uint64, requests int)
 	// Decisions and Requests count everything delivered; the m* fields count only while Measuring.
 	Decisions, Requests   atomic.Uint64
 	Measuring             atomic.Bool
@@ -244,7 +329,32 @@ func (a *App) Deliver(proposal types.Proposal, signatures []types.Signature) typ
 		a.mRequests.Add(uint64(len(reqs)))
 		a.mDeliverNanos.Add(int64(time.Since(start)))
 	}
+	if a.OnDecision != nil {
+		a.OnDecision(start, md.LatestSequence, len(reqs))
+	}
 	return types.Reconfig{InLatestDecision: false}
+}
+
+// SetOnDeliver installs the per-request delivery callback (used by Client); call before Start.
+func (a *App) SetOnDeliver(f func(client, seq uint64, latency time.Duration)) { a.onDeliver = f }
+
+// LatestSeq returns the sequence of the last delivered decision (0 before the first).
+func (a *App) LatestSeq() uint64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.latestSeq
+}
+
+// Ledger returns the node's recent decisions (served to peers that sync).
+func (a *App) Ledger() *Ledger { return a.ledger }
+
+// MeasuredCounts returns decisions, requests and the mean Deliver time measured while Measuring.
+func (a *App) MeasuredCounts() (decisions, requests uint64, deliverMean time.Duration) {
+	decisions, requests = a.mDecisions.Load(), a.mRequests.Load()
+	if decisions > 0 {
+		deliverMean = time.Duration(a.mDeliverNanos.Load() / int64(decisions))
+	}
+	return
 }
 
 // Latencies returns the samples recorded while Measuring and clears them.
@@ -295,24 +405,48 @@ func (a *App) AuxiliaryData(msg []byte) []byte       { return msg }
 func (a *App) RequestID(r []byte) types.RequestInfo  { info, _ := requestInfo(r); return info }
 func (a *App) MembershipChange() bool                { return false }
 
-// Sync is called when a node falls behind: it delivers the decisions it missed from the shared
-// ledger, in order, and hands back the last one.
+// Sync is called when a node falls behind: it delivers the decisions it missed, in order, and
+// hands back the last one. In-process (Remote == nil) the decisions come from the Ledger shared
+// by all nodes of the run; with Remote set they are fetched from the peers, round by round, until
+// no peer has anything newer (bounded by syncMaxRounds so a node never blocks here forever).
 func (a *App) Sync() types.SyncResponse {
 	a.Syncs.Add(1)
-	for {
-		a.mu.Lock()
-		next := a.latestSeq + 1
-		a.mu.Unlock()
-		d, ok := a.ledger.get(next)
-		if !ok {
-			break
+	if a.Remote == nil {
+		for {
+			a.mu.Lock()
+			next := a.latestSeq + 1
+			a.mu.Unlock()
+			d, ok := a.ledger.get(next)
+			if !ok {
+				break
+			}
+			a.Deliver(d.Proposal, d.Signatures)
 		}
-		a.Deliver(d.Proposal, d.Signatures)
+	} else {
+		for round := 0; round < syncMaxRounds; round++ {
+			decisions := a.Remote.Fetch(a.LatestSeq())
+			if len(decisions) == 0 {
+				break
+			}
+			for _, d := range decisions {
+				md := &smartbftprotos.ViewMetadata{}
+				if err := proto.Unmarshal(d.Proposal.Metadata, md); err != nil {
+					panic(err)
+				}
+				if md.LatestSequence <= a.LatestSeq() {
+					continue
+				}
+				a.Deliver(d.Proposal, d.Signatures)
+			}
+		}
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return types.SyncResponse{Latest: types.Decision{Proposal: a.lastProposal, Signatures: a.lastSignatures}}
 }
+
+// syncMaxRounds bounds the number of Fetch rounds per Sync.
+const syncMaxRounds = 64
 
 // Node is one consensus instance with its dependencies.
 type Node struct {
@@ -328,6 +462,14 @@ type Node struct {
 // NewNode wires a node; cfg.SelfID is set to id. Comm is taken from the network, which must not
 // have been started yet; the ledger is shared by all nodes of the run.
 func NewNode(id uint64, cfg types.Configuration, net *Network, ledger *Ledger) *Node {
+	n := NewNodeWithComm(id, cfg, net.NewComm(id), ledger)
+	net.SetHandler(id, n.Consensus)
+	return n
+}
+
+// NewNodeWithComm wires a node on top of any api.Comm (e.g. the TCP transport of cmd/node). The
+// caller delivers incoming messages into n.Consensus.HandleMessage/HandleRequest.
+func NewNodeWithComm(id uint64, cfg types.Configuration, comm api.Comm, ledger *Ledger) *Node {
 	cfg.SelfID = id
 	app := &App{id: id, ledger: ledger, metadata: &smartbftprotos.ViewMetadata{}}
 	logger := &quietLogger{id: id}
@@ -339,7 +481,7 @@ func NewNode(id uint64, cfg types.Configuration, net *Network, ledger *Ledger) *
 		Application:        app,
 		Assembler:          app,
 		WAL:                &memWAL{},
-		Comm:               net.NewComm(id),
+		Comm:               comm,
 		Signer:             app,
 		Verifier:           app,
 		MembershipNotifier: app,
@@ -351,7 +493,6 @@ func NewNode(id uint64, cfg types.Configuration, net *Network, ledger *Ledger) *
 		Scheduler:          n.clock.C,
 		ViewChangerTicker:  n.vcClock.C,
 	}
-	net.SetHandler(id, n.Consensus)
 	return n
 }
 

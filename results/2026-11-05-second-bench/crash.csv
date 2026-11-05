@@ -1,0 +1,7 @@
+w,rtt_ms,k,node,leader_at_end,t0_unix_nano,tail_ms,first_view_start_ms,recovery_ms,gaps,view_changes,in_flight_commits,pre_crash_tps,post_recovery_tps_15s,post_15s_complete,syncs,warnings,resubmits,dropped,clock_jump_ms,note
+4,50,256,2,2,1793883500536796000,,2097.65,2683.47,1,1,0,716.00,596.13,true,0,4,0,1925,0.98,
+4,50,256,3,2,1793883500536796000,,2125.80,2683.03,1,1,0,716.00,596.13,true,0,10,0,1145,0.98,
+4,50,256,4,2,1793883500536796000,,2125.66,2683.68,1,1,0,716.00,596.13,true,0,0,762,1881,0.98,
+1,50,256,2,2,1793883543298259000,,2046.70,30564.16,1,5,0,590.00,17.07,false,1,138,0,105,0.98,"expected 1 view change, saw 5"
+1,50,256,3,2,1793883543298259000,,2072.95,30591.50,1,5,0,590.00,17.07,false,2,85,0,84,0.98,"expected 1 view change, saw 5"
+1,50,256,4,2,1793883543298259000,,2072.98,30590.85,1,5,0,590.00,17.07,false,1,30,1152,279,0.98,"expected 1 view change, saw 5"
